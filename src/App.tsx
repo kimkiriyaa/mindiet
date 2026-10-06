@@ -10,7 +10,7 @@ import { saveMealToSheet, saveDailyLogToSheet } from './services/googleSheetServ
 
 type PeriodTab = 'daily' | 'weekly' | 'monthly';
 const DEFAULT_TARGET_CALORIES = 1700;
-const DEFAULT_TARGET_WATER = 2000; // 목표 수분 2000ml
+const DEFAULT_TARGET_WATER = 2000;
 
 export const App: React.FC = () => {
   const [session, setSession] = useState<UserSession | null>(() => {
@@ -19,6 +19,7 @@ export const App: React.FC = () => {
   });
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('min_diet_profile');
     return saved ? JSON.parse(saved) : null;
@@ -89,9 +90,6 @@ export const App: React.FC = () => {
   const handleStepsChange = (steps: number) => {
     const validSteps = Math.max(0, steps);
     updateDailyLog((prev) => ({ ...prev, steps: validSteps }));
-    if (session) {
-      saveDailyLogToSheet(session.userId, todayStr, validSteps, dailyLog.targetCalories);
-    }
   };
 
   const handleQuickAddSteps = (amount: number) => {
@@ -100,6 +98,17 @@ export const App: React.FC = () => {
 
   const handleSetExactSteps = (exact: number) => {
     handleStepsChange(exact);
+  };
+
+  // 명시적 전체 저장 핸들러
+  const handleSaveAll = () => {
+    localStorage.setItem(storageKey, JSON.stringify(dailyLog));
+    localStorage.setItem(waterStorageKey, waterIntake.toString());
+    if (session) {
+      saveDailyLogToSheet(session.userId, todayStr, dailyLog.steps, dailyLog.targetCalories);
+    }
+    setSaveToast(true);
+    setTimeout(() => setSaveToast(false), 2000);
   };
 
   const handleLogout = () => {
@@ -189,22 +198,47 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 flex justify-center text-slate-800 overflow-x-hidden touch-manipulation select-none pb-[env(safe-area-inset-bottom,24px)]">
-      <div className="w-full max-w-md bg-white min-h-screen shadow-lg flex flex-col">
-        {/* 상단 네비게이션 헤더 */}
-        <header className="px-5 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-30">
-          <HeaderNav onOpenProfile={() => setIsProfileOpen(true)} />
+      <div className="w-full max-w-md bg-white min-h-screen shadow-lg flex flex-col relative">
+        {/* 모바일 상단 네비게이션 헤더 (Safe-Area 탑 패딩 및 터치 영역 대폭 개선) */}
+        <header className="px-4 pt-[max(14px,env(safe-area-inset-top))] pb-3 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-40">
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsProfileOpen(true)}
+              className="p-2 -ml-2 rounded-xl active:bg-slate-100 flex items-center gap-1.5 touch-manipulation cursor-pointer"
+            >
+              <span className="text-xl">⚙️</span>
+              <span className="text-xs font-bold text-slate-700">설정</span>
+            </button>
             <span className="text-xs font-bold px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
               {session.userName}님
             </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSaveAll}
+              className="min-h-[36px] px-3 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1 transition-all touch-manipulation"
+            >
+              <span>💾</span>
+              <span>저장</span>
+            </button>
             <button
               onClick={handleLogout}
-              className="text-xs text-slate-400 hover:text-rose-500 font-medium px-1 py-1"
+              className="text-xs text-slate-400 hover:text-rose-500 font-medium px-1.5 py-1"
             >
               로그아웃
             </button>
           </div>
         </header>
+
+        {/* 저장 완료 알림 토스트 배너 */}
+        {saveToast && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg z-50 animate-bounce">
+            ✅ 오늘의 기록이 안전하게 저장되었습니다!
+          </div>
+        )}
 
         {/* 메인 스크롤 콘텐츠 */}
         <main className="p-4 space-y-4 flex-1 overflow-y-auto">
@@ -272,7 +306,7 @@ export const App: React.FC = () => {
             </div>
           </section>
 
-          {/* 3. 물 마시기 퀵 입력 카드 💧 */}
+          {/* 3. 수분 섭취 퀵 입력 카드 (물 마시기 💧) */}
           <section className="bg-blue-50/70 p-4 rounded-3xl border border-blue-100 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -455,13 +489,14 @@ export const App: React.FC = () => {
         </main>
 
         {/* 프로필 수정 모달 */}
-        {isProfileOpen && profile && (
+        {isProfileOpen && (
           <ProfileModal
-            profile={profile}
+            profile={profile || { name: session.userName, weight: 68, height: 175, targetCalories: 1700 }}
             onClose={() => setIsProfileOpen(false)}
             onSave={(updated) => {
               setProfile(updated);
               localStorage.setItem('min_diet_profile', JSON.stringify(updated));
+              setIsProfileOpen(false);
             }}
           />
         )}
