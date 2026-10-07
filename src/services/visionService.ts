@@ -6,6 +6,8 @@ export interface FoodVisionAnalysisResult {
   fat: number;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<FoodVisionAnalysisResult> => {
   const envKey = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY
     ? String((import.meta as any).env.VITE_GEMINI_API_KEY).trim()
@@ -52,46 +54,70 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
     },
   };
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
+  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+  let lastError: any = null;
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(
-        `[VisionService] Gemini API 호출 실패 [Model: gemini-3.8-flash, HTTP Status: ${response.status} ${response.statusText}]`,
-        errorText
-      );
-      throw new Error(`Gemini API(gemini-3.8-flash) 오류 [${response.status} ${response.statusText}]: ${errorText}`);
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.status === 503) {
+          console.warn(`[VisionService] ${model} 503 과부하 발생 (시도 ${attempt}/2).`);
+          if (attempt < 2) {
+            await sleep(1500);
+            continue;
+          }
+          // 2회 시도 모두 503이면 다음 모델(fallback)로 전환
+          break;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`[VisionService] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          if (attempt < 2) {
+            await sleep(1500);
+            continue;
+          }
+          break;
+        }
+
+        const data = await response.json();
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!candidateText) {
+          throw new Error('음식 인식 결과를 전달받지 못했습니다.');
+        }
+
+        // 마크다운 형식 제거 (```json ... ``` 대응)
+        const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleanedText);
+
+        return {
+          name: String(parsed.name || '알 수 없는 음식').trim(),
+          calories: Math.max(0, Math.round(Number(parsed.calories) || 0)),
+          carbs: Math.max(0, Math.round(Number(parsed.carbs) || 0)),
+          protein: Math.max(0, Math.round(Number(parsed.protein) || 0)),
+          fat: Math.max(0, Math.round(Number(parsed.fat) || 0)),
+        };
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[VisionService] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
+        if (attempt < 2) {
+          await sleep(1500);
+        }
+      }
     }
-
-    const data = await response.json();
-    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!candidateText) {
-      throw new Error('Gemini API로부터 분석 결과를 전달받지 못했습니다.');
-    }
-
-    // 마크다운 형식 제거 (```json ... ``` 대응)
-    const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanedText);
-
-    return {
-      name: String(parsed.name || '알 수 없는 음식').trim(),
-      calories: Math.max(0, Math.round(Number(parsed.calories) || 0)),
-      carbs: Math.max(0, Math.round(Number(parsed.carbs) || 0)),
-      protein: Math.max(0, Math.round(Number(parsed.protein) || 0)),
-      fat: Math.max(0, Math.round(Number(parsed.fat) || 0)),
-    };
-  } catch (error: any) {
-    console.error('[VisionService] 분석 중 오류 발생:', error);
-    throw error;
   }
+
+  console.error('[VisionService] 모든 모델 및 재시도 실패:', lastError);
+  throw new Error('일시적으로 AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.');
 };
