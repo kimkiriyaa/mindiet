@@ -26,6 +26,9 @@ export const saveStoredProfile = (profile: UserProfile): void => {
   }
 };
 
+export const loadUserProfile = getStoredProfile;
+export const saveUserProfile = saveStoredProfile;
+
 export const calculateAge = (birthDate: string): number => {
   if (!birthDate) return 25;
   const birth = new Date(birthDate);
