@@ -1,5 +1,3 @@
-import { DailyLog, NutritionSummary } from '../types/diet';
-
 /**
  * 체중과 걸음 수를 기반으로 소모 칼로리를 연산하는 공식
  */
@@ -38,4 +36,16 @@ export const calculateBMI = (heightCm: number, weightKg: number): BMIResult => {
     return { bmi: 0, status: '정상', color: 'text-slate-500' };
   }
   const heightM = heightCm / 100;
-  const
+  const bmi = Number((weightKg / (heightM * heightM)).toFixed(1));
+
+  if (bmi < 18.5) {
+    return { bmi, status: '저체중', color: 'text-sky-500' };
+  }
+  if (bmi < 23) {
+    return { bmi, status: '정상', color: 'text-emerald-500' };
+  }
+  if (bmi < 25) {
+    return { bmi, status: '과체중', color: 'text-amber-500' };
+  }
+  return { bmi, status: '비만', color: 'text-rose-500' };
+};
