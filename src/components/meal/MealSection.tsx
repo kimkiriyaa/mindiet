@@ -55,3 +55,21 @@ const compressImage = (file: File, maxWidth = 800, quality = 0.75): Promise<stri
         resolve(compressedBase64);
       };
       img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+export const MealSection: React.FC<MealSectionProps> = ({
+  meals,
+  onAddMeal,
+  onDeleteMeal,
+}) => {
+  const [activeType, setActiveType] = useState<MealType | null>(null);
+  const [name, setName] = useState('');
+  const [calories, setCalories] = useState('');
+  const [carbs, setCarbs] = useState<number | undefined>(undefined);
+  const [protein, setProtein] = useState<number | undefined>(undefined);
+  const [fat, setFat] = useState<number | undefined>(undefined);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [isCompressing, setIsCompressing] = useState(false);
