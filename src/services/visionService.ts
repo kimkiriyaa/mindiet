@@ -7,23 +7,25 @@ interface FoodVisionAnalysisResult {
 }
 
 export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<FoodVisionAnalysisResult> => {
-  const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY?.trim?.() || '';
-  const localKey = localStorage.getItem('min_diet_gemini_api_key')?.trim?.() || '';
+  const envKey = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY
+    ? String((import.meta as any).env.VITE_GEMINI_API_KEY).trim()
+    : '';
+  const localKey = (localStorage.getItem('min_diet_gemini_api_key') || '').trim();
   const apiKey = envKey || localKey;
 
-  if (!apiKey) {
-    const errorMsg = 'Gemini API 키가 설정되지 않았습니다. Vercel 환경 변수(VITE_GEMINI_API_KEY) 또는 프로필 설정의 API 키를 확인해주세요.';
-    console.error(`[VisionService] ${errorMsg}`);
+  if (!apiKey || apiKey.length === 0) {
+    const errorMsg = 'Gemini API 키가 설정되지 않았습니다. .env(VITE_GEMINI_API_KEY) 또는 프로필 설정의 API 키 입력을 확인해 주세요.';
+    console.error(`[VisionService] API Key 누락: ${errorMsg}`);
     throw new Error(errorMsg);
   }
 
   // base64 헤더 분리 (예: data:image/jpeg;base64,...)
   const parts = base64ImageWithHeader.split(',');
-  const rawBase64 = parts.length > 1 ? parts[1] : parts[0];
+  const rawBase64 = parts.length > 1 ? parts[1].trim() : parts[0].trim();
   const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
 
-  const prompt = `이 음식 사진을 분석해서 음식 이름(name), 총 칼로리(calories, 숫자), 탄수화물(carbs, g 단위 숫자), 단백질(protein, g 단위 숫자), 지방(fat, g 단위 숫자)을 JSON 형식으로만 반환해줘.
+  const prompt = `이 음식 사진을 분석해서 음식 이름(name), 총 칼로리(calories, 정수), 탄수화물(carbs, g 단위 정수), 단백질(protein, g 단위 정수), 지방(fat, g 단위 정수)을 JSON 형식으로만 반환해줘.
 응답 형식:
 {
   "name": "음식명",
@@ -53,7 +55,6 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
     },
   };
 
-  // 우선 gemini-1.5-flash 시도 후 실패 시 gemini-2.0-flash 시도
   const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash'];
   let lastError: Error | null = null;
 
@@ -71,7 +72,10 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[VisionService] ${model} 호출 실패 - Status: ${response.status}`, errorText);
+        console.error(
+          `[VisionService] Gemini API 호출 실패 [Model: ${model}, HTTP Status: ${response.status} ${response.statusText}]`,
+          errorText
+        );
         lastError = new Error(`Gemini API(${model}) 오류 [${response.status}]: ${errorText}`);
         continue;
       }
@@ -80,10 +84,11 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
       const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!textResponse) {
-        throw new Error('Gemini API 응답에서 분석 결과를 찾을 수 없습니다.');
+        console.error(`[VisionService] ${model} 응답 본문에 텍스트 내용 없음:`, data);
+        throw new Error(`Gemini API(${model}) 응답에서 텍스트 결과 데이터를 찾을 수 없습니다.`);
       }
 
-      // Markdown 백틱(```json ... ```) 제거 후 파싱
+      // Markdown 백틱(```json ... ```) 제거 후 안전하게 파싱
       const cleanedJsonStr = textResponse.replace(/^```json/m, '').replace(/^```/m, '').replace(/```$/m, '').trim();
       const parsed = JSON.parse(cleanedJsonStr);
 
@@ -95,10 +100,10 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         fat: Number(parsed.fat) || 0,
       };
     } catch (err: any) {
-      console.error(`[VisionService] ${model} 요청 중 예외 발생:`, err);
+      console.error(`[VisionService] ${model} 처리 도중 예외 발생:`, err);
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
 
-  throw lastError || new Error('Gemini API 분석에 실패했습니다.');
+  throw lastError || new Error('모든 Gemini Vision 모델 호출에 실패했습니다. API 키 및 네트워크 상태를 확인해주세요.');
 };
