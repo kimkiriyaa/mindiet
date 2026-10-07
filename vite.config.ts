@@ -1,14 +1,3 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  base: '/',
-  plugins: [react()],
-  server: {
-    port: 3000,
-    open: true,
-  },
-  build: {
-    outDir: 'dist',
-  },
-});
+git add .
+git commit -m "chore: Vercel 배포 준비 완료"
+git push origin main
