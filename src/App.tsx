@@ -93,6 +93,12 @@ export const App: React.FC = () => {
   const handleSaveProfile = (newProfile: UserProfile) => {
     setProfile(newProfile);
     saveUserProfile(newProfile);
+    if (newProfile.targetCalories && newProfile.targetCalories !== dailyLog.targetCalories) {
+      handleUpdateLog({
+        ...dailyLog,
+        targetCalories: newProfile.targetCalories,
+      });
+    }
     setIsProfileOpen(false);
   };
 
