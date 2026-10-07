@@ -25,7 +25,12 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
   const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
 
-  const prompt = `사진 속 음식을 인식해서 JSON 형식 { name: string, calories: number, carbs: number, protein: number, fat: number } 으로만 응답해줘. 칼로리는 1인분 기준 예상치.`;
+  const weeklyMenuPlan = (localStorage.getItem('weekly_menu_plan') || '').trim();
+  const menuPlanContext = weeklyMenuPlan
+    ? `\n참고: 사용자의 이번 주 예정 식단표: [${weeklyMenuPlan}]. 사진 속 음식이 식단표와 일치하면 해당 음식명을 최우선 적용하고 칼로리를 계산해줘.`
+    : '';
+
+  const prompt = `사진 속 음식을 인식해서 JSON 형식 { name: string, calories: number, carbs: number, protein: number, fat: number } 으로만 응답해줘. 칼로리는 1인분 기준 예상치.${menuPlanContext}`;
 
   const requestBody = {
     contents: [
@@ -64,41 +69,4 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         `[VisionService] Gemini API 호출 실패 [Model: gemini-3.8-flash, HTTP Status: ${response.status} ${response.statusText}]`,
         errorText
       );
-      throw new Error(`Gemini API(gemini-3.8-flash) 오류 [${response.status}]: ${errorText}`);
-    }
-
-    const data = await response.json();
-    const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!textResponse) {
-      console.error('[VisionService] gemini-3.8-flash 응답 본문에 텍스트 내용 없음:', data);
-      throw new Error('Gemini API 응답에서 텍스트 결과 데이터를 찾을 수 없습니다.');
-    }
-
-    // Markdown 코드 블록 및 전후 여백 제거
-    let cleanedJsonStr = textResponse
-      .replace(/```json\s*/gi, '')
-      .replace(/```\s*$/g, '')
-      .replace(/```/g, '')
-      .trim();
-
-    // 순수 JSON 객체 부분({ ... })만 안전하게 추출
-    const jsonMatch = cleanedJsonStr.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      cleanedJsonStr = jsonMatch[0];
-    }
-
-    const parsed = JSON.parse(cleanedJsonStr);
-
-    return {
-      name: parsed.name || '알 수 없는 음식',
-      calories: Math.max(0, Math.round(Number(parsed.calories) || 0)),
-      carbs: Math.max(0, Math.round(Number(parsed.carbs) || 0)),
-      protein: Math.max(0, Math.round(Number(parsed.protein) || 0)),
-      fat: Math.max(0, Math.round(Number(parsed.fat) || 0)),
-    };
-  } catch (err: any) {
-    console.error('[VisionService] gemini-3.8-flash 처리 도중 예외 발생:', err);
-    throw err instanceof Error ? err : new Error(String(err));
-  }
-};
+      throw new Error(`Gemini API(gemini-3.8-flash) 오류 [${response.status

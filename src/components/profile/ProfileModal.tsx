@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../../types/diet';
 import { calculateBMR, calculateTargetCalories } from '../../services/profileService';
 
@@ -16,6 +16,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onSaveProfile,
 }) => {
   const [formData, setFormData] = useState<UserProfile>({ ...profile });
+  const [weeklyMenuPlan, setWeeklyMenuPlan] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({ ...profile });
+      const savedMenu = localStorage.getItem('weekly_menu_plan') || '';
+      setWeeklyMenuPlan(savedMenu);
+    }
+  }, [isOpen, profile]);
 
   if (!isOpen) return null;
 
@@ -24,13 +33,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    localStorage.setItem('weekly_menu_plan', weeklyMenuPlan.trim());
+    if (formData.geminiApiKey) {
+      localStorage.setItem('min_diet_gemini_api_key', formData.geminiApiKey.trim());
+    }
     onSaveProfile(formData);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl transition-all">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm overflow-y-auto">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl transition-all my-8 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b pb-3">
           <h2 className="text-lg font-bold text-slate-800">내 신체 정보 및 설정</h2>
           <button
@@ -109,6 +122,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 required
               />
             </div>
+          </div>
+
+          {/* 주간 식단표 (구내식당 메뉴 등) */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              주간 식단표 (구내식당 메뉴 등)
+            </label>
+            <textarea
+              rows={4}
+              value={weeklyMenuPlan}
+              onChange={e => setWeeklyMenuPlan(e.target.value)}
+              placeholder="예:&#10;월: 닭가슴살 볶음밥, 미역국&#10;화: 제육볶음, 된장찌개, 흑미밥&#10;수: 안동찜닭, 콩나물국"
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:border-emerald-500 focus:outline-none resize-none leading-relaxed"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              입력 시 Gemini AI가 사진 분석할 때 해당 식단표를 최우선 참고하여 분석합니다.
+            </p>
           </div>
 
           <div>
