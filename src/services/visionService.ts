@@ -1,4 +1,4 @@
-interface FoodVisionAnalysisResult {
+export interface FoodVisionAnalysisResult {
   name: string;
   calories: number;
   carbs: number;
@@ -72,35 +72,4 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         continue;
       }
 
-      const data = await response.json();
-      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!textResponse) {
-        console.error(`[VisionService] ${model} 응답 본문에 텍스트 내용 없음:`, data);
-        throw new Error(`Gemini API(${model}) 응답에서 텍스트 결과 데이터를 찾을 수 없습니다.`);
-      }
-
-      // Markdown 백틱(```json ... ```) 완벽 제거 및 JSON 파싱
-      const cleanedJsonStr = textResponse
-        .replace(/```json\s*/gi, '')
-        .replace(/```\s*$/g, '')
-        .replace(/```/g, '')
-        .trim();
-
-      const parsed = JSON.parse(cleanedJsonStr);
-
-      return {
-        name: parsed.name || '알 수 없는 음식',
-        calories: Number(parsed.calories) || 0,
-        carbs: Number(parsed.carbs) || 0,
-        protein: Number(parsed.protein) || 0,
-        fat: Number(parsed.fat) || 0,
-      };
-    } catch (err: any) {
-      console.error(`[VisionService] ${model} 처리 도중 예외 발생:`, err);
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-  }
-
-  throw lastError || new Error('모든 Gemini Vision 모델 호출에 실패했습니다. API 키 및 네트워크 상태를 확인해주세요.');
-};
+      const data =
