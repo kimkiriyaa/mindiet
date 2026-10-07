@@ -1,27 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { MealSection } from './components/meal/MealSection';
 import { WorkoutSection } from './components/workout/WorkoutSection';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { LoginView } from './components/auth/LoginView';
+import { CalorieDashboardCard } from './components/dashboard/CalorieDashboardCard';
+import { WaterTrackerCard } from './components/dashboard/WaterTrackerCard';
 import { DailyLog, MealItem, UserProfile, UserSession } from './types/diet';
 import { calculateStepCalories } from './utils/nutritionCalc';
 import { saveMealToSheet, saveDailyLogToSheet } from './services/googleSheetService';
-import {
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  User,
-  LogOut,
-  Flame,
-  Utensils,
-  Footprints,
-  Droplet,
-  Plus,
-  Minus,
-  CheckCircle2,
-} from 'lucide-react';
+import { Calendar, User, LogOut, CheckCircle2 } from 'lucide-react';
 
-type PeriodTab = 'daily' | 'weekly' | 'monthly';
 const DEFAULT_TARGET_CALORIES = 1700;
 const DEFAULT_TARGET_WATER = 2000;
 
@@ -38,9 +26,7 @@ export const App: React.FC = () => {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodTab>('daily');
-
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const storageKey = session ? `min_diet_log_${session.userId}_${todayStr}` : `min_diet_log_${todayStr}`;
   const waterStorageKey = session ? `min_diet_water_${session.userId}_${todayStr}` : `min_diet_water_${todayStr}`;
 
@@ -76,30 +62,30 @@ export const App: React.FC = () => {
     setWaterIntake(savedWater ? Number(savedWater) : 0);
   }, [session, todayStr]);
 
-  const saveToStorageSafely = (key: string, value: string) => {
+  const saveToStorageSafely = useCallback((key: string, value: string) => {
     try {
       localStorage.setItem(key, value);
-    } catch (e: any) {
-      console.error('로컬스토리지 저장 실패:', e);
-      alert('로컬 저장소 공간이 부족합니다. 이전 사진 데이터를 일부 정리해주세요.');
+    } catch (e) {
+      console.error('로컬스토리지 저장 용량 부족:', e);
+      alert('저장 공간이 부족합니다. 이전 기록이나 사진 데이터를 정리해 주세요.');
     }
-  };
+  }, []);
 
-  const updateDailyLog = (updater: (prev: DailyLog) => DailyLog) => {
+  const updateDailyLog = useCallback((updater: (prev: DailyLog) => DailyLog) => {
     setDailyLog((prev) => {
       const next = updater(prev);
       saveToStorageSafely(storageKey, JSON.stringify(next));
       return next;
     });
-  };
+  }, [storageKey, saveToStorageSafely]);
 
-  const handleAddWater = (amount: number) => {
+  const handleAddWater = useCallback((amount: number) => {
     setWaterIntake((prev) => {
       const next = Math.max(0, prev + amount);
       saveToStorageSafely(waterStorageKey, next.toString());
       return next;
     });
-  };
+  }, [waterStorageKey, saveToStorageSafely]);
 
   const handleLogin = (userSession: UserSession) => {
     setSession(userSession);
@@ -144,10 +130,7 @@ export const App: React.FC = () => {
   };
 
   const handleStepsChange = (steps: number) => {
-    updateDailyLog((prev) => ({
-      ...prev,
-      steps,
-    }));
+    updateDailyLog((prev) => ({ ...prev, steps }));
   };
 
   const handleSyncToSheet = async () => {
@@ -211,113 +194,32 @@ export const App: React.FC = () => {
 
         {/* 메인 컨텐츠 영역 */}
         <main className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {/* 날짜 선택 카드 */}
+          {/* 오늘 날짜 표시 */}
           <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex items-center justify-between">
             <div className="flex items-center gap-2 text-slate-700">
               <Calendar className="w-4 h-4 text-emerald-600" />
               <span className="text-xs font-bold">{dailyLog.date}</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-100/60 px-2 py-0.5 rounded-full">
-                오늘
-              </span>
-            </div>
+            <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-100/60 px-2 py-0.5 rounded-full">
+              오늘
+            </span>
           </div>
 
-          {/* 칼로리 요약 대시보드 카드 */}
-          <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-5 text-white shadow-md shadow-emerald-500/20">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-xs text-emerald-100 font-medium">순 섭취 칼로리 (In - Out)</p>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-3xl font-black tracking-tight">{netCalories.toLocaleString()}</span>
-                  <span className="text-sm font-semibold text-emerald-100">/ {targetCalories.toLocaleString()} kcal</span>
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] bg-white/20 backdrop-blur-xs px-2.5 py-1 rounded-full font-bold">
-                  {remainingCalories >= 0 ? `${remainingCalories} kcal 남음` : `${Math.abs(remainingCalories)} kcal 초과`}
-                </span>
-              </div>
-            </div>
+          {/* 순 칼로리 요약 대시보드 */}
+          <CalorieDashboardCard
+            netCalories={netCalories}
+            targetCalories={targetCalories}
+            remainingCalories={remainingCalories}
+            totalInCalories={totalInCalories}
+            burnedStepCalories={burnedStepCalories}
+          />
 
-            {/* 영양/소비 간편 요약 그리드 */}
-            <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/15">
-              <div className="bg-white/10 rounded-xl p-2.5 flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
-                  <Utensils className="w-4 h-4 text-emerald-100" />
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-100">먹은 칼로리 (In)</div>
-                  <div className="text-xs font-bold">+{totalInCalories.toLocaleString()} kcal</div>
-                </div>
-              </div>
-
-              <div className="bg-white/10 rounded-xl p-2.5 flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
-                  <Footprints className="w-4 h-4 text-emerald-100" />
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-100">걸음 소모 (Out)</div>
-                  <div className="text-xs font-bold">-{burnedStepCalories.toLocaleString()} kcal</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 물 섭취 기록 섹션 */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-sky-100 flex items-center justify-center text-sky-600">
-                  <Droplet className="w-4 h-4" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-slate-800">물 섭취량</h2>
-                </div>
-              </div>
-              <div className="text-xs font-bold text-sky-600">
-                {waterIntake} / {DEFAULT_TARGET_WATER} ml
-              </div>
-            </div>
-
-            {/* 게이지 바 */}
-            <div className="w-full bg-slate-100 rounded-full h-2 mb-3 overflow-hidden">
-              <div
-                className="bg-sky-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min(100, (waterIntake / DEFAULT_TARGET_WATER) * 100)}%` }}
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleAddWater(250)}
-                className="flex-1 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 active:scale-[0.98]"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+250ml (한 컵)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddWater(500)}
-                className="flex-1 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 active:scale-[0.98]"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+500ml (텀블러)</span>
-              </button>
-              {waterIntake > 0 && (
-                <button
-                  type="button"
-                  onClick={() => handleAddWater(-250)}
-                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition"
-                  title="250ml 빼기"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
+          {/* 물 섭취량 카드 */}
+          <WaterTrackerCard
+            waterIntake={waterIntake}
+            targetWater={DEFAULT_TARGET_WATER}
+            onAddWater={handleAddWater}
+          />
 
           {/* 식단 기록 섹션 */}
           <MealSection
@@ -333,7 +235,7 @@ export const App: React.FC = () => {
             burnedCalories={burnedStepCalories}
           />
 
-          {/* 구글 시트 백업 동기화 버튼 */}
+          {/* 구글 시트 동기화 백업 버튼 */}
           <div className="pt-2">
             <button
               onClick={handleSyncToSheet}
@@ -345,7 +247,7 @@ export const App: React.FC = () => {
           </div>
         </main>
 
-        {/* 저장 성공 토스트 */}
+        {/* 저장 토스트 */}
         {saveToast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-lg z-50 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
