@@ -10,7 +10,6 @@ import { ProfileModal } from './components/profile/ProfileModal';
 import { UserSession, UserProfile, DailyLog, MealItem } from './types/diet';
 import { loadUserProfile, saveUserProfile } from './services/profileService';
 import { loadDailyLog, saveDailyLog } from './services/storageService';
-import { calculateBMR, calculateTDEE } from './utils/nutritionCalc';
 
 export const App: React.FC = () => {
   const [session, setSession] = useState<UserSession | null>(() => {
