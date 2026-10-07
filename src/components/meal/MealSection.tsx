@@ -68,6 +68,9 @@ export const MealSection: React.FC<MealSectionProps> = ({
   const [activeType, setActiveType] = useState<MealType | null>(null);
   const [name, setName] = useState('');
   const [calories, setCalories] = useState('');
+  const [carbs, setCarbs] = useState<number | undefined>(undefined);
+  const [protein, setProtein] = useState<number | undefined>(undefined);
+  const [fat, setFat] = useState<number | undefined>(undefined);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isCompressing, setIsCompressing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -76,6 +79,9 @@ export const MealSection: React.FC<MealSectionProps> = ({
   const resetForm = () => {
     setName('');
     setCalories('');
+    setCarbs(undefined);
+    setProtein(undefined);
+    setFat(undefined);
     setImageUrl('');
     setIsCompressing(false);
     setIsAnalyzing(false);
@@ -108,6 +114,9 @@ export const MealSection: React.FC<MealSectionProps> = ({
       if (result.calories !== undefined) {
         setCalories(result.calories.toString());
       }
+      setCarbs(result.carbs);
+      setProtein(result.protein);
+      setFat(result.fat);
     } catch (error: any) {
       console.error('음식 이미지 분석 실패:', error);
       alert(
@@ -154,6 +163,9 @@ export const MealSection: React.FC<MealSectionProps> = ({
       type: activeType,
       name: name.trim(),
       calories: Number(calories) || 0,
+      carbs,
+      protein,
+      fat,
       imageUrl: imageUrl || undefined,
     });
 
