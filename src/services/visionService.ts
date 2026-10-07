@@ -69,4 +69,29 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         `[VisionService] Gemini API 호출 실패 [Model: gemini-3.8-flash, HTTP Status: ${response.status} ${response.statusText}]`,
         errorText
       );
-      throw new Error(`Gemini API(gemini-3.8-flash) 오류 [${response.status
+      throw new Error(`Gemini API(gemini-3.8-flash) 오류 [${response.status} ${response.statusText}]: ${errorText}`);
+    }
+
+    const data = await response.json();
+    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!candidateText) {
+      throw new Error('Gemini API로부터 분석 결과를 전달받지 못했습니다.');
+    }
+
+    // 마크다운 형식 제거 (```json ... ``` 대응)
+    const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanedText);
+
+    return {
+      name: String(parsed.name || '알 수 없는 음식').trim(),
+      calories: Math.max(0, Math.round(Number(parsed.calories) || 0)),
+      carbs: Math.max(0, Math.round(Number(parsed.carbs) || 0)),
+      protein: Math.max(0, Math.round(Number(parsed.protein) || 0)),
+      fat: Math.max(0, Math.round(Number(parsed.fat) || 0)),
+    };
+  } catch (error: any) {
+    console.error('[VisionService] 분석 중 오류 발생:', error);
+    throw error;
+  }
+};
