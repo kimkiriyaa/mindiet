@@ -14,7 +14,7 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
   const apiKey = envKey || localKey;
 
   if (!apiKey || apiKey.length === 0) {
-    const errorMsg = 'Gemini API 키가 설정되지 않았습니다. .env(VITE_GEMINI_API_KEY) 또는 프로필 설정의 API 키 입력을 확인해 주세요.';
+    const errorMsg = 'Gemini API 키가 설정되지 않았습니다. .env(VITE_GEMINI_API_KEY) 또는 설정에서 API 키를 입력해 주세요.';
     console.error(`[VisionService] API Key 누락: ${errorMsg}`);
     throw new Error(errorMsg);
   }
@@ -25,15 +25,7 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
   const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
 
-  const prompt = `이 음식 사진을 분석해서 음식 이름(name), 총 칼로리(calories, 정수), 탄수화물(carbs, g 단위 정수), 단백질(protein, g 단위 정수), 지방(fat, g 단위 정수)을 JSON 형식으로만 반환해줘.
-응답 형식:
-{
-  "name": "음식명",
-  "calories": 450,
-  "carbs": 50,
-  "protein": 20,
-  "fat": 15
-}`;
+  const prompt = `사진 속 음식을 인식해서 JSON 형식 { name: string, calories: number, carbs: number, protein: number, fat: number } 으로만 응답해줘. 칼로리는 1인분 기준 예상치.`;
 
   const requestBody = {
     contents: [
@@ -88,8 +80,13 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         throw new Error(`Gemini API(${model}) 응답에서 텍스트 결과 데이터를 찾을 수 없습니다.`);
       }
 
-      // Markdown 백틱(```json ... ```) 제거 후 안전하게 파싱
-      const cleanedJsonStr = textResponse.replace(/^```json/m, '').replace(/^```/m, '').replace(/```$/m, '').trim();
+      // Markdown 백틱(```json ... ```) 완벽 제거 및 JSON 파싱
+      const cleanedJsonStr = textResponse
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*$/g, '')
+        .replace(/```/g, '')
+        .trim();
+
       const parsed = JSON.parse(cleanedJsonStr);
 
       return {

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Camera, Loader2, Image as ImageIcon, X } from 'lucide-react';
+import { Plus, Trash2, Camera, Loader2, Image as ImageIcon, X, Sparkles } from 'lucide-react';
 import { MealItem, MealType } from '../../types/diet';
 import { analyzeFoodImage } from '../../services/visionService';
 
@@ -94,6 +94,31 @@ export const MealSection: React.FC<MealSectionProps> = ({
     }
   };
 
+  // 사진 분석 수행 함수
+  const triggerImageAnalysis = async (imgDataUrl: string) => {
+    if (!imgDataUrl) return;
+
+    try {
+      setIsAnalyzing(true);
+      const result = await analyzeFoodImage(imgDataUrl);
+
+      if (result.name) {
+        setName(result.name);
+      }
+      if (result.calories !== undefined) {
+        setCalories(result.calories.toString());
+      }
+    } catch (error: any) {
+      console.error('음식 이미지 분석 실패:', error);
+      alert(
+        error?.message ||
+          'AI 분석에 실패했습니다. 사진이 음식인지 확인하시거나 API 키 설정을 확인해 주세요.'
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -104,21 +129,8 @@ export const MealSection: React.FC<MealSectionProps> = ({
       setImageUrl(compressedDataUrl);
       setIsCompressing(false);
 
-      // Gemini Vision API를 통한 음식 자동 분석 시도
-      try {
-        setIsAnalyzing(true);
-        const result = await analyzeFoodImage(compressedDataUrl);
-        if (result.name && !name) {
-          setName(result.name);
-        }
-        if (result.calories) {
-          setCalories(result.calories.toString());
-        }
-      } catch (visionError) {
-        console.warn('음식 이미지 분석 실패 또는 API 키 미설정:', visionError);
-      } finally {
-        setIsAnalyzing(false);
-      }
+      // 사진 업로드 즉시 AI 자동 분석 실행
+      await triggerImageAnalysis(compressedDataUrl);
     } catch (err) {
       console.error('이미지 압축 처리 오류:', err);
       alert('이미지를 불러오는 중 오류가 발생했습니다. 다시 시도해 주세요.');
@@ -190,18 +202,20 @@ export const MealSection: React.FC<MealSectionProps> = ({
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="음식 이름 (예: 닭가슴살 샐러드)"
+                      placeholder={isAnalyzing ? 'AI가 음식 이름 파악 중...' : '음식 이름 (예: 닭가슴살 샐러드)'}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                      disabled={isAnalyzing}
+                      className="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
                       required
                     />
                     <input
                       type="number"
-                      placeholder="칼로리(kcal)"
+                      placeholder={isAnalyzing ? '계산 중...' : '칼로리(kcal)'}
                       value={calories}
                       onChange={(e) => setCalories(e.target.value)}
-                      className="w-28 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                      disabled={isAnalyzing}
+                      className="w-28 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
                       required
                     />
                   </div>
@@ -228,35 +242,47 @@ export const MealSection: React.FC<MealSectionProps> = ({
                             <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
                             <span>사진 최적화 중...</span>
                           </>
-                        ) : isAnalyzing ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-                            <span>AI 음식 영양 분석 중...</span>
-                          </>
                         ) : (
                           <>
                             <Camera className="w-4 h-4 text-emerald-600" />
-                            <span>사진 촬영 또는 갤러리에서 선택</span>
+                            <span>사진 촬영 또는 갤러리에서 선택 (AI 자동 분석)</span>
                           </>
                         )}
                       </button>
                     ) : (
-                      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-1 flex items-center gap-3">
+                      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-2 flex items-center gap-3">
                         <img
                           src={imageUrl}
                           alt="선택한 식단 미리보기"
-                          className="w-16 h-16 object-cover rounded-lg"
+                          className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
                         />
-                        <div className="flex-1 text-xs">
-                          <p className="font-semibold text-slate-700">식단 사진 첨부됨</p>
-                          <p className="text-[11px] text-slate-400">
-                            {isAnalyzing ? 'AI 영양 분석 중...' : '저장 시 함께 기록됩니다'}
-                          </p>
+                        <div className="flex-1 text-xs min-w-0">
+                          {isAnalyzing ? (
+                            <div className="flex items-center gap-1.5 text-emerald-600 font-semibold animate-pulse">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>AI가 칼로리 계산 중...</span>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="font-semibold text-slate-700 truncate">식단 사진 첨부됨</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => triggerImageAnalysis(imageUrl)}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md transition"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>AI 분석 다시 시도</span>
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                         <button
                           type="button"
                           onClick={handleRemoveImage}
-                          className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 mr-1"
+                          disabled={isAnalyzing}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 disabled:opacity-50"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -266,10 +292,10 @@ export const MealSection: React.FC<MealSectionProps> = ({
 
                   <button
                     type="submit"
-                    disabled={isCompressing}
-                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-[0.99]"
+                    disabled={isCompressing || isAnalyzing}
+                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-[0.99]"
                   >
-                    추가 완료
+                    {isAnalyzing ? 'AI가 칼로리 계산 중...' : '추가 완료'}
                   </button>
                 </form>
               )}
