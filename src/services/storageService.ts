@@ -37,3 +37,15 @@ export const saveDailyLog = (log: DailyLog): void => {
     console.error('Failed to save daily log to localStorage:', error);
   }
 };
+
+// 호환용 alias export
+export const loadDailyLog = (dateStr: string) => {
+  const data = localStorage.getItem(`min_diet_log_${dateStr}`);
+  return data ? JSON.parse(data) : null;
+};
+
+export const saveDailyLog = (log: any) => {
+  if (log && log.date) {
+    localStorage.setItem(`min_diet_log_${log.date}`, JSON.stringify(log));
+  }
+};
