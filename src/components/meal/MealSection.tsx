@@ -60,31 +60,4 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
   const [protein, setProtein] = useState<number | undefined>(undefined);
   const [fat, setFat] = useState<number | undefined>(undefined);
 
-  const [beforeImageUrl, setBeforeImageUrl] = useState<string>('');
-  const [afterImageUrl, setAfterImageUrl] = useState<string>('');
-
-  const [isCompressing, setIsCompressing] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isEstimatingText, setIsEstimatingText] = useState(false);
-
-  const beforeFileRef = useRef<HTMLInputElement>(null);
-  const afterFileRef = useRef<HTMLInputElement>(null);
-
-  const resetForm = () => {
-    setName('');
-    setCalories('');
-    setCarbs(undefined);
-    setProtein(undefined);
-    setFat(undefined);
-    setBeforeImageUrl('');
-    setAfterImageUrl('');
-    setIsCompressing(false);
-    setIsAnalyzing(false);
-    setIsEstimatingText(false);
-    if (beforeFileRef.current) beforeFileRef.current.value = '';
-    if (afterFileRef.current) afterFileRef.current.value = '';
-  };
-
-  const handleOpenType = (type: MealType) => {
-    if (activeType === type) {
-      setActiveType(null
+  const [beforeImageUrl, setBeforeImageUrl] = useState
