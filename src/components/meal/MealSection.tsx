@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Camera, Loader2, Image as ImageIcon, X, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Camera, Loader2, Image as ImageIcon, X, Sparkles, Zap } from 'lucide-react';
 import { MealItem, MealType } from '../../types/diet';
-import { analyzeFoodImage } from '../../services/visionService';
+import { analyzeFoodImage, estimateNutritionFromText } from '../../services/visionService';
 
 interface MealSectionProps {
   meals: MealItem[];
@@ -74,6 +74,7 @@ export const MealSection: React.FC<MealSectionProps> = ({
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isCompressing, setIsCompressing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isEstimatingText, setIsEstimatingText] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetForm = () => {
@@ -85,6 +86,7 @@ export const MealSection: React.FC<MealSectionProps> = ({
     setImageUrl('');
     setIsCompressing(false);
     setIsAnalyzing(false);
+    setIsEstimatingText(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -131,6 +133,43 @@ export const MealSection: React.FC<MealSectionProps> = ({
       alert(message);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  // 텍스트 기반 영양성분 AI 추정 함수
+  const handleEstimateTextNutrition = async () => {
+    if (!name.trim()) {
+      alert('음식 이름을 먼저 입력해 주세요 (예: 바나나 1개, 닭가슴살 100g).');
+      return;
+    }
+
+    setIsEstimatingText(true);
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('응답 시간이 초과되었습니다(15초). 다시 시도해 주세요.'));
+        }, 15000);
+      });
+
+      const estimatePromise = estimateNutritionFromText(name.trim());
+      const result = await Promise.race([estimatePromise, timeoutPromise]);
+
+      if (result.name && !name.trim()) {
+        setName(result.name);
+      }
+      if (result.calories !== undefined) {
+        const calNum = Number(result.calories);
+        setCalories(Number.isNaN(calNum) ? '0' : calNum.toString());
+      }
+      setCarbs(Number.isNaN(Number(result.carbs)) ? 0 : Number(result.carbs));
+      setProtein(Number.isNaN(Number(result.protein)) ? 0 : Number(result.protein));
+      setFat(Number.isNaN(Number(result.fat)) ? 0 : Number(result.fat));
+    } catch (error: any) {
+      console.error('음식 텍스트 추정 실패:', error);
+      const message = error?.message || '영양성분 계산에 실패했습니다. API 키 설정을 확인해 주세요.';
+      alert(message);
+    } finally {
+      setIsEstimatingText(false);
     }
   };
 
@@ -183,6 +222,8 @@ export const MealSection: React.FC<MealSectionProps> = ({
     setActiveType(null);
   };
 
+  const isBusy = isCompressing || isAnalyzing || isEstimatingText;
+
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between px-1">
@@ -225,25 +266,64 @@ export const MealSection: React.FC<MealSectionProps> = ({
               {isOpen && (
                 <form onSubmit={handleSubmit} className="mt-3 pt-3 border-t border-slate-100 space-y-2.5">
                   <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder={isAnalyzing ? 'AI가 음식 이름 파악 중...' : '음식 이름 (예: 닭가슴살 샐러드)'}
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      disabled={isAnalyzing}
-                      className="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      required
-                    />
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        placeholder={
+                          isAnalyzing
+                            ? 'AI가 음식 이름 파악 중...'
+                            : isEstimatingText
+                            ? 'AI 계산 중...'
+                            : '음식 이름 (예: 바나나 1개, 삼겹살)'
+                        }
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        disabled={isBusy}
+                        className="w-full text-xs px-3 py-2 pr-20 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={handleEstimateTextNutrition}
+                        disabled={isBusy || !name.trim()}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-[10px] font-bold transition flex items-center gap-0.5"
+                        title="입력한 음식명으로 칼로리와 영양소를 자동 계산합니다"
+                      >
+                        {isEstimatingText ? (
+                          <>
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                            <span>계산 중</span>
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-2.5 h-2.5" />
+                            <span>AI 계산</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
                     <input
                       type="number"
-                      placeholder={isAnalyzing ? '계산 중...' : '칼로리(kcal)'}
+                      placeholder={isBusy ? '계산 중...' : '칼로리(kcal)'}
                       value={calories}
                       onChange={(e) => setCalories(e.target.value)}
-                      disabled={isAnalyzing}
-                      className="w-28 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      disabled={isBusy}
+                      className="w-24 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
                       required
                     />
                   </div>
+
+                  {/* 탄단지 자동 계산 수치 표시 안내 (계산된 경우) */}
+                  {(carbs !== undefined || protein !== undefined || fat !== undefined) && (
+                    <div className="flex items-center gap-2 px-2 py-1 bg-emerald-50/60 rounded-lg text-[11px] text-emerald-700 font-medium">
+                      <span>탄수화물 {carbs ?? 0}g</span>
+                      <span>·</span>
+                      <span>단백질 {protein ?? 0}g</span>
+                      <span>·</span>
+                      <span>지방 {fat ?? 0}g</span>
+                    </div>
+                  )}
 
                   {/* 사진 첨부 영역 */}
                   <div className="space-y-2">
@@ -259,7 +339,7 @@ export const MealSection: React.FC<MealSectionProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={isCompressing || isAnalyzing}
+                        disabled={isBusy}
                         className="w-full py-2.5 px-3 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-[0.99] transition flex items-center justify-center gap-1.5 text-xs font-medium"
                       >
                         {isCompressing ? (
@@ -317,10 +397,10 @@ export const MealSection: React.FC<MealSectionProps> = ({
 
                   <button
                     type="submit"
-                    disabled={isCompressing || isAnalyzing}
+                    disabled={isBusy}
                     className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-[0.99]"
                   >
-                    {isAnalyzing ? 'AI가 칼로리 계산 중...' : '추가 완료'}
+                    {isBusy ? 'AI가 칼로리 계산 중...' : '추가 완료'}
                   </button>
                 </form>
               )}
