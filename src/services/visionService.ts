@@ -24,22 +24,55 @@ const getApiKey = (): string => {
   return apiKey;
 };
 
-export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<FoodVisionAnalysisResult> => {
+/**
+ * 1장 또는 2장(식사 전, 식사 후 잔반)의 사진을 받아 순 섭취량을 분석하는 고도화 함수
+ */
+export const analyzeMealPhoto = async (
+  images: string | string[],
+  userNotes?: string
+): Promise<FoodVisionAnalysisResult> => {
   const apiKey = getApiKey();
+  const imageList = Array.isArray(images) ? images.filter(Boolean) : [images].filter(Boolean);
 
-  // base64 헤더 분리 (예: data:image/jpeg;base64,...)
-  const parts = base64ImageWithHeader.split(',');
-  const rawBase64 = parts.length > 1 ? parts[1].trim() : parts[0].trim();
-  const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
-  const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
+  if (imageList.length === 0) {
+    throw new Error('분석할 음식 이미지가 없습니다.');
+  }
+
+  const isMultiPhoto = imageList.length >= 2;
 
   const weeklyMenuPlan = (localStorage.getItem('weekly_menu_plan') || '').trim();
   const menuPlanContext = weeklyMenuPlan
     ? `\n[사용자 이번 주 예정 식단표]\n${weeklyMenuPlan}\n(사진 속 식단과 일치하는 메뉴가 있다면 해당 메뉴명을 최우선 적용하여 정확도를 높여라.)`
     : '';
 
-  const prompt = `당신은 최고 수준의 임상 영양사 및 식품 분석 AI입니다.
-제공된 음식 사진(특히 급식판, 구내식당 식판, 일반 한 접시 등)을 세밀하게 분석하세요.
+  const notesContext = userNotes && userNotes.trim()
+    ? `\n[사용자 메모/참고사항]: ${userNotes.trim()}`
+    : '';
+
+  let prompt = '';
+  if (isMultiPhoto) {
+    prompt = `당신은 최고 수준의 임상 영양사 및 식품 분석 AI입니다.
+첨부된 2장의 사진을 정밀하게 대조 분석하세요.
+- 첫 번째 이미지는 '식사 전 식판'입니다.
+- 두 번째 이미지는 '식사 후 잔반 식판'입니다.
+
+[분석 가이드라인]
+1. 두 사진을 비교 분석하여 밥, 메인 고기/단백질 반찬, 국물 및 건더기, 기타 반찬 등의 실제 순 섭취량(배식량 - 잔반량)을 계산하세요.
+2. 남긴 잔반은 제외하고 사용자가 실제로 섭취한 칼로리(kcal)와 탄수화물(carbs, g), 단백질(protein, g), 지방(fat, g)만을 정밀 산출하세요.
+3. 사족이나 인사말, 서술형 문장 없이 오직 아래 지정된 순수 JSON 규격으로만 응답하세요.${menuPlanContext}${notesContext}
+
+[응답 JSON 스키마]
+{
+  "name": "식단 대표명 (예: 제육볶음 정식 (잔반 제외 순섭취))",
+  "calories": 480,
+  "carbs": 58,
+  "protein": 26,
+  "fat": 15,
+  "description": "실제 섭취량 요약 (예: 밥 1/3 남김, 제육볶음 완식, 국물 80% 남김 등 잔반 반영)"
+}`;
+  } else {
+    prompt = `당신은 최고 수준의 임상 영양사 및 식품 분석 AI입니다.
+제공된 음식 사진(식판, 한 접시 등)을 세밀하게 분석하세요.
 
 [분석 가이드라인]
 1. 식판 칸별 메뉴 파악:
@@ -48,7 +81,7 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
    - 국류(건더기 종류 및 염분/국물 섭취량)
    - 반찬류(나물, 김치, 튀김, 샐러드 드레싱 등)
 2. 실제 섭취한 예상 순수 총 칼로리(kcal)와 탄수화물(carbs, g), 단백질(protein, g), 지방(fat, g)을 정밀 계산하세요.
-3. 사족이나 인사말, 서술형 문장, 마크다운 설명 없이 오직 순수 JSON 형식만 반환하세요.${menuPlanContext}
+3. 사족이나 인사말, 서술형 문장, 마크다운 설명 없이 오직 순수 JSON 형식만 반환하세요.${menuPlanContext}${notesContext}
 
 [응답 JSON 스키마]
 {
@@ -59,19 +92,29 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
   "fat": 18,
   "description": "섭취 메뉴 구성 요약 (예: 흑미밥 200g, 제육볶음 120g, 배추된장국, 깍두기, 시금치나물)"
 }`;
+  }
+
+  // Gemini parts 구성
+  const parts: any[] = [{ text: prompt }];
+
+  imageList.slice(0, 2).forEach((img) => {
+    const splitArr = img.split(',');
+    const rawBase64 = splitArr.length > 1 ? splitArr[1].trim() : splitArr[0].trim();
+    const mimeMatch = img.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+
+    parts.push({
+      inline_data: {
+        mime_type: mimeType,
+        data: rawBase64,
+      },
+    });
+  });
 
   const requestBody = {
     contents: [
       {
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: rawBase64,
-            },
-          },
-        ],
+        parts,
       },
     ],
     generationConfig: {
@@ -131,7 +174,7 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         const parsedFat = Number(parsed.fat);
 
         return {
-          name: String(parsed.name || '알 수 없는 음식').trim(),
+          name: String(parsed.name || '알 수 없는 식단').trim(),
           calories: Number.isFinite(parsedCalories) ? Math.max(0, Math.round(parsedCalories)) : 0,
           carbs: Number.isFinite(parsedCarbs) ? Math.max(0, Math.round(parsedCarbs)) : 0,
           protein: Number.isFinite(parsedProtein) ? Math.max(0, Math.round(parsedProtein)) : 0,
@@ -150,6 +193,13 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
 
   console.error('[VisionService] 모든 모델 및 재시도 실패:', lastError);
   throw new Error('일시적으로 AI 서버가 혼잡하거나 네트워크가 불안정합니다. 잠시 후 다시 시도해 주세요.');
+};
+
+/**
+ * 하위 호환성을 유지하기 위한 기존 단일 이미지 분석 래퍼 함수
+ */
+export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<FoodVisionAnalysisResult> => {
+  return analyzeMealPhoto(base64ImageWithHeader);
 };
 
 /**
