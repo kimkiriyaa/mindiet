@@ -248,13 +248,3 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
       } catch (err: any) {
         lastError = err;
         console.warn(`[VisionService/Text] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
-        if (attempt < 2) {
-          await sleep(1500);
-        }
-      }
-    }
-  }
-
-  console.error('[VisionService/Text] 모든 모델 및 재시도 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡하거나 네트워크가 불안정합니다. 잠시 후 다시 시도해 주세요.');
-};

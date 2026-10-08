@@ -10,6 +10,11 @@ export interface UserProfile {
   gender: 'male' | 'female';
   height: number;
   weight: number;
+  activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  targetWeight?: number;
+  targetCalories?: number;
+  targetWater?: number;
+  geminiApiKey?: string;
 }
 
 export interface MealItem {
@@ -29,4 +34,6 @@ export interface DailyLog {
   targetCalories: number;
   steps: number;
   meals: MealItem[];
+  waterIntake?: number;
+  weight?: number;
 }
