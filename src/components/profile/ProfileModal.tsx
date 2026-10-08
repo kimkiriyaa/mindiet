@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Camera, Loader2, Sparkles } from 'lucide-react';
 import { UserProfile } from '../../types/diet';
 import { calculateBMR, calculateTargetCalories } from '../../services/profileService';
+import { parseWeeklyMenuFromImage } from '../../services/visionService';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -8,6 +10,46 @@ interface ProfileModalProps {
   profile: UserProfile;
   onSaveProfile: (profile: UserProfile) => void;
 }
+
+const compressMenuImage = (file: File, maxWidth = 1200, quality = 0.85): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = (error) => reject(error);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = (error) => reject(error);
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxWidth) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxWidth) / height);
+            height = maxWidth;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context unavailable'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
@@ -17,12 +59,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<UserProfile>({ ...profile });
   const [weeklyMenuPlan, setWeeklyMenuPlan] = useState<string>('');
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const menuFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setFormData({ ...profile });
       const savedMenu = localStorage.getItem('weekly_menu_plan') || '';
       setWeeklyMenuPlan(savedMenu);
+      setIsOcrProcessing(false);
     }
   }, [isOpen, profile]);
 
@@ -30,6 +75,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   const bmr = calculateBMR(formData);
   const targetCal = calculateTargetCalories(formData);
+
+  const handleMenuImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsOcrProcessing(true);
+    try {
+      const base64Data = await compressMenuImage(file);
+      const parsedText = await parseWeeklyMenuFromImage(base64Data);
+
+      if (parsedText && parsedText.trim().length > 0) {
+        setWeeklyMenuPlan(parsedText.trim());
+        localStorage.setItem('weekly_menu_plan', parsedText.trim());
+        alert('식단표 사진에서 메뉴를 성공적으로 추출했습니다!');
+      }
+    } catch (err: any) {
+      console.error('식단표 사진 OCR 실패:', err);
+      alert(err?.message || '식단표 사진을 읽는 중 문제가 발생했습니다.');
+    } finally {
+      setIsOcrProcessing(false);
+      if (menuFileInputRef.current) {
+        menuFileInputRef.current.value = '';
+      }
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,11 +194,40 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </div>
           </div>
 
-          {/* 주간 식단표 (구내식당 메뉴 등) */}
+          {/* 주간 식단표 (구내식당 메뉴 등) + 사진 OCR 기능 */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              주간 식단표 (구내식당 메뉴 등)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-600">
+                주간 식단표 (구내식당 메뉴 등)
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                ref={menuFileInputRef}
+                onChange={handleMenuImageUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => menuFileInputRef.current?.click()}
+                disabled={isOcrProcessing}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 disabled:bg-slate-100 disabled:text-slate-400 px-2.5 py-1 rounded-lg transition"
+              >
+                {isOcrProcessing ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                    <span>식단표 인식 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera className="w-3 h-3 text-emerald-600" />
+                    <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                    <span>사진으로 자동 입력</span>
+                  </>
+                )}
+              </button>
+            </div>
+
             <textarea
               rows={4}
               value={weeklyMenuPlan}
@@ -137,7 +236,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:border-emerald-500 focus:outline-none resize-none leading-relaxed"
             />
             <p className="mt-1 text-[11px] text-slate-400">
-              입력 시 Gemini AI가 사진 분석할 때 해당 식단표를 최우선 참고하여 분석합니다.
+              식단표 안내문 사진을 올리거나 텍스트를 적어두면 Gemini AI가 음식 사진 분석 시 최우선 참고합니다.
             </p>
           </div>
 

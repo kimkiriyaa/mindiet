@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Scale } from 'lucide-react';
 import { LoginView } from './components/auth/LoginView';
 import { HeaderNav } from './components/common/HeaderNav';
 import { CalorieDashboardCard } from './components/dashboard/CalorieDashboardCard';
@@ -59,6 +60,7 @@ export const App: React.FC = () => {
         steps: 0,
         meals: [],
         waterIntake: 0,
+        weight: safeNumber(profile.weight, 70),
       }
     );
   });
@@ -66,12 +68,15 @@ export const App: React.FC = () => {
   useEffect(() => {
     const log = loadDailyLog(currentDate);
     const fallbackTarget = safeNumber(profile.targetCalories, 2000);
+    const fallbackWeight = safeNumber(profile.weight, 70);
+
     if (log) {
       setDailyLog({
         ...log,
         targetCalories: safeNumber(log.targetCalories, fallbackTarget),
         steps: Math.max(0, safeNumber(log.steps, 0)),
         waterIntake: Math.max(0, safeNumber(log.waterIntake, 0)),
+        weight: log.weight !== undefined ? safeNumber(log.weight, fallbackWeight) : fallbackWeight,
         meals: Array.isArray(log.meals) ? log.meals : [],
       });
     } else {
@@ -81,9 +86,10 @@ export const App: React.FC = () => {
         steps: 0,
         meals: [],
         waterIntake: 0,
+        weight: fallbackWeight,
       });
     }
-  }, [currentDate, profile.targetCalories]);
+  }, [currentDate, profile.targetCalories, profile.weight]);
 
   const handleUpdateLog = useCallback(
     (newLog: DailyLog) => {
@@ -92,6 +98,7 @@ export const App: React.FC = () => {
         targetCalories: Math.max(0, safeNumber(newLog.targetCalories, 2000)),
         steps: Math.max(0, safeNumber(newLog.steps, 0)),
         waterIntake: Math.max(0, safeNumber(newLog.waterIntake, 0)),
+        weight: newLog.weight !== undefined ? safeNumber(newLog.weight, 0) : undefined,
         meals: Array.isArray(newLog.meals) ? newLog.meals : [],
       };
       setDailyLog(sanitizedLog);
@@ -145,6 +152,20 @@ export const App: React.FC = () => {
     }
   };
 
+  // 오늘 체중 변경 시 dailyLog 및 profile 즉시 동기화
+  const handleWeightChange = (newWeightStr: string) => {
+    const numericWeight = safeNumber(newWeightStr, 0);
+    handleUpdateLog({
+      ...dailyLog,
+      weight: numericWeight > 0 ? numericWeight : undefined,
+    });
+    if (numericWeight > 0) {
+      const updatedProfile = { ...profile, weight: numericWeight };
+      setProfile(updatedProfile);
+      saveUserProfile(updatedProfile);
+    }
+  };
+
   const handleAddMeal = (mealData: Omit<MealItem, 'id'>) => {
     const newMeal: MealItem = {
       ...mealData,
@@ -189,13 +210,13 @@ export const App: React.FC = () => {
     return Math.max(0, Math.round(safeNumber(sum, 0)));
   }, [dailyLog.meals]);
 
-  // 걸음 수 소모 칼로리 계산 (NaN 방어)
+  // 걸음 수 소모 칼로리 계산 (오늘 체중 반영 및 NaN 방어)
   const burnedStepCalories = useMemo(() => {
     const safeSteps = Math.max(0, safeNumber(dailyLog.steps, 0));
-    const safeWeight = Math.max(0, safeNumber(profile.weight, 65));
-    const burned = calculateStepCalories(safeSteps, safeWeight);
+    const currentWeight = safeNumber(dailyLog.weight, safeNumber(profile.weight, 65));
+    const burned = calculateStepCalories(safeSteps, currentWeight);
     return Math.max(0, Math.round(safeNumber(burned, 0)));
-  }, [dailyLog.steps, profile.weight]);
+  }, [dailyLog.steps, dailyLog.weight, profile.weight]);
 
   // 순 칼로리 계산
   const netCalories = useMemo(() => {
@@ -263,6 +284,32 @@ export const App: React.FC = () => {
           totalInCalories={totalInCalories}
           burnedStepCalories={burnedStepCalories}
         />
+
+        {/* 오늘 체중(kg) 간편 입력 컴팩트 카드 */}
+        <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Scale className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-800">오늘의 몸무게</div>
+              <div className="text-[10px] text-slate-400">소모 칼로리에 실시간 반영</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              step="0.1"
+              min="30"
+              max="250"
+              value={dailyLog.weight ?? ''}
+              onChange={(e) => handleWeightChange(e.target.value)}
+              placeholder={(profile.weight || 65).toString()}
+              className="w-20 px-2.5 py-1.5 text-right font-bold text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-indigo-600 placeholder:text-slate-300"
+            />
+            <span className="text-xs font-semibold text-slate-500">kg</span>
+          </div>
+        </div>
 
         {/* 탄단지 영양 요약 카드 */}
         <CalorieSummaryCard
