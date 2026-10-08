@@ -101,12 +101,17 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
         const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(cleanedText);
 
+        const parsedCalories = Number(parsed.calories);
+        const parsedCarbs = Number(parsed.carbs);
+        const parsedProtein = Number(parsed.protein);
+        const parsedFat = Number(parsed.fat);
+
         return {
           name: String(parsed.name || '알 수 없는 음식').trim(),
-          calories: Math.max(0, Math.round(Number(parsed.calories) || 0)),
-          carbs: Math.max(0, Math.round(Number(parsed.carbs) || 0)),
-          protein: Math.max(0, Math.round(Number(parsed.protein) || 0)),
-          fat: Math.max(0, Math.round(Number(parsed.fat) || 0)),
+          calories: Number.isFinite(parsedCalories) ? Math.max(0, Math.round(parsedCalories)) : 0,
+          carbs: Number.isFinite(parsedCarbs) ? Math.max(0, Math.round(parsedCarbs)) : 0,
+          protein: Number.isFinite(parsedProtein) ? Math.max(0, Math.round(parsedProtein)) : 0,
+          fat: Number.isFinite(parsedFat) ? Math.max(0, Math.round(parsedFat)) : 0,
         };
       } catch (err: any) {
         lastError = err;
@@ -119,5 +124,5 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
   }
 
   console.error('[VisionService] 모든 모델 및 재시도 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.');
+  throw new Error('일시적으로 AI 서버가 혼잡하거나 네트워크가 불안정합니다. 잠시 후 다시 시도해 주세요.');
 };

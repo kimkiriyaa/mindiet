@@ -15,6 +15,11 @@ import { calculateStepCalories } from './utils/nutritionCalc';
 const SESSION_KEY = 'min_diet_session';
 const LEGACY_SESSION_KEY = 'diet_session';
 
+const safeNumber = (val: unknown, fallback: number = 0): number => {
+  const n = Number(val);
+  return Number.isFinite(n) && !Number.isNaN(n) ? n : fallback;
+};
+
 export const App: React.FC = () => {
   const [session, setSession] = useState<UserSession | null>(() => {
     try {
@@ -50,7 +55,7 @@ export const App: React.FC = () => {
     return (
       loadDailyLog(currentDate) || {
         date: currentDate,
-        targetCalories: Number(profile.targetCalories) || 2000,
+        targetCalories: safeNumber(profile.targetCalories, 2000),
         steps: 0,
         meals: [],
         waterIntake: 0,
@@ -60,13 +65,13 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const log = loadDailyLog(currentDate);
-    const fallbackTarget = Number(profile.targetCalories) || 2000;
+    const fallbackTarget = safeNumber(profile.targetCalories, 2000);
     if (log) {
       setDailyLog({
         ...log,
-        targetCalories: Number(log.targetCalories) || fallbackTarget,
-        steps: Math.max(0, Number(log.steps) || 0),
-        waterIntake: Math.max(0, Number(log.waterIntake) || 0),
+        targetCalories: safeNumber(log.targetCalories, fallbackTarget),
+        steps: Math.max(0, safeNumber(log.steps, 0)),
+        waterIntake: Math.max(0, safeNumber(log.waterIntake, 0)),
         meals: Array.isArray(log.meals) ? log.meals : [],
       });
     } else {
@@ -84,9 +89,9 @@ export const App: React.FC = () => {
     (newLog: DailyLog) => {
       const sanitizedLog: DailyLog = {
         ...newLog,
-        targetCalories: Math.max(0, Number(newLog.targetCalories) || 2000),
-        steps: Math.max(0, Number(newLog.steps) || 0),
-        waterIntake: Math.max(0, Number(newLog.waterIntake) || 0),
+        targetCalories: Math.max(0, safeNumber(newLog.targetCalories, 2000)),
+        steps: Math.max(0, safeNumber(newLog.steps, 0)),
+        waterIntake: Math.max(0, safeNumber(newLog.waterIntake, 0)),
         meals: Array.isArray(newLog.meals) ? newLog.meals : [],
       };
       setDailyLog(sanitizedLog);
@@ -125,10 +130,10 @@ export const App: React.FC = () => {
   const handleSaveProfile = (newProfile: UserProfile) => {
     const sanitizedProfile: UserProfile = {
       ...newProfile,
-      height: Math.max(0, Number(newProfile.height) || 170),
-      weight: Math.max(0, Number(newProfile.weight) || 65),
-      targetCalories: Math.max(0, Number(newProfile.targetCalories) || 2000),
-      targetWater: Math.max(0, Number(newProfile.targetWater) || 2000),
+      height: Math.max(0, safeNumber(newProfile.height, 170)),
+      weight: Math.max(0, safeNumber(newProfile.weight, 65)),
+      targetCalories: Math.max(0, safeNumber(newProfile.targetCalories, 2000)),
+      targetWater: Math.max(0, safeNumber(newProfile.targetWater, 2000)),
     };
     setProfile(sanitizedProfile);
     saveUserProfile(sanitizedProfile);
@@ -143,10 +148,10 @@ export const App: React.FC = () => {
   const handleAddMeal = (mealData: Omit<MealItem, 'id'>) => {
     const newMeal: MealItem = {
       ...mealData,
-      calories: Math.max(0, Number(mealData.calories) || 0),
-      carbs: Math.max(0, Number(mealData.carbs) || 0),
-      protein: Math.max(0, Number(mealData.protein) || 0),
-      fat: Math.max(0, Number(mealData.fat) || 0),
+      calories: Math.max(0, safeNumber(mealData.calories, 0)),
+      carbs: mealData.carbs !== undefined ? Math.max(0, safeNumber(mealData.carbs, 0)) : undefined,
+      protein: mealData.protein !== undefined ? Math.max(0, safeNumber(mealData.protein, 0)) : undefined,
+      fat: mealData.fat !== undefined ? Math.max(0, safeNumber(mealData.fat, 0)) : undefined,
       id: Date.now().toString(),
     };
     handleUpdateLog({
@@ -165,63 +170,58 @@ export const App: React.FC = () => {
   const handleStepsChange = (steps: number) => {
     handleUpdateLog({
       ...dailyLog,
-      steps: Math.max(0, Number(steps) || 0),
+      steps: Math.max(0, safeNumber(steps, 0)),
     });
   };
 
   const handleAddWater = (amount: number) => {
-    const current = Math.max(0, Number(dailyLog.waterIntake) || 0);
-    const safeAmount = Number(amount) || 0;
+    const current = Math.max(0, safeNumber(dailyLog.waterIntake, 0));
+    const safeAmount = safeNumber(amount, 0);
     handleUpdateLog({
       ...dailyLog,
       waterIntake: Math.max(0, current + safeAmount),
     });
   };
 
-  // 총 섭취 칼로리 계산
+  // 총 섭취 칼로리 계산 (NaN 방어)
   const totalInCalories = useMemo(() => {
-    const total = dailyLog.meals.reduce((sum, item) => sum + (Number(item.calories) || 0), 0);
-    return Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0;
+    const sum = dailyLog.meals.reduce((acc, item) => acc + safeNumber(item?.calories, 0), 0);
+    return Math.max(0, Math.round(safeNumber(sum, 0)));
   }, [dailyLog.meals]);
 
-  // 걸음 수 소모 칼로리 계산 (nutritionCalc 공식 사용)
+  // 걸음 수 소모 칼로리 계산 (NaN 방어)
   const burnedStepCalories = useMemo(() => {
-    const safeSteps = Math.max(0, Number(dailyLog.steps) || 0);
-    const safeWeight = Math.max(0, Number(profile.weight) || 65);
+    const safeSteps = Math.max(0, safeNumber(dailyLog.steps, 0));
+    const safeWeight = Math.max(0, safeNumber(profile.weight, 65));
     const burned = calculateStepCalories(safeSteps, safeWeight);
-    return Number.isFinite(burned) ? Math.max(0, burned) : 0;
+    return Math.max(0, Math.round(safeNumber(burned, 0)));
   }, [dailyLog.steps, profile.weight]);
 
+  // 순 칼로리 계산
   const netCalories = useMemo(() => {
-    const net = totalInCalories - burnedStepCalories;
-    return Number.isFinite(net) ? net : 0;
+    return safeNumber(totalInCalories - burnedStepCalories, 0);
   }, [totalInCalories, burnedStepCalories]);
 
+  // 목표 칼로리 계산
   const targetCalories = useMemo(() => {
-    const target = Number(dailyLog.targetCalories) || Number(profile.targetCalories) || 2000;
-    return Number.isFinite(target) ? target : 2000;
+    const target = safeNumber(dailyLog.targetCalories, safeNumber(profile.targetCalories, 2000));
+    return target > 0 ? target : 2000;
   }, [dailyLog.targetCalories, profile.targetCalories]);
 
+  // 잔여 칼로리 계산
   const remainingCalories = useMemo(() => {
-    const remaining = targetCalories - netCalories;
-    return Number.isFinite(remaining) ? remaining : 0;
+    return safeNumber(targetCalories - netCalories, 0);
   }, [targetCalories, netCalories]);
 
+  // 탄단지 영양소 합계
   const nutritionTotals = useMemo(() => {
     return dailyLog.meals.reduce(
-      (acc, item) => {
-        const itemCal = Number(item.calories) || 0;
-        const itemCarbs = Number(item.carbs) || 0;
-        const itemProtein = Number(item.protein) || 0;
-        const itemFat = Number(item.fat) || 0;
-
-        return {
-          calories: acc.calories + (Number.isFinite(itemCal) ? itemCal : 0),
-          carbs: acc.carbs + (Number.isFinite(itemCarbs) ? itemCarbs : 0),
-          protein: acc.protein + (Number.isFinite(itemProtein) ? itemProtein : 0),
-          fat: acc.fat + (Number.isFinite(itemFat) ? itemFat : 0),
-        };
-      },
+      (acc, item) => ({
+        calories: acc.calories + safeNumber(item.calories, 0),
+        carbs: acc.carbs + safeNumber(item.carbs, 0),
+        protein: acc.protein + safeNumber(item.protein, 0),
+        fat: acc.fat + safeNumber(item.fat, 0),
+      }),
       { calories: 0, carbs: 0, protein: 0, fat: 0 }
     );
   }, [dailyLog.meals]);

@@ -100,29 +100,35 @@ export const MealSection: React.FC<MealSectionProps> = ({
     }
   };
 
-  // 사진 분석 수행 함수
+  // 사진 분석 수행 함수 (15초 타임아웃 및 확실한 에러 핸들링 보장)
   const triggerImageAnalysis = async (imgDataUrl: string) => {
     if (!imgDataUrl) return;
 
+    setIsAnalyzing(true);
     try {
-      setIsAnalyzing(true);
-      const result = await analyzeFoodImage(imgDataUrl);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('응답 시간이 초과되었습니다(15초). 다시 시도해 주세요.'));
+        }, 15000);
+      });
+
+      const analysisPromise = analyzeFoodImage(imgDataUrl);
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
 
       if (result.name) {
         setName(result.name);
       }
       if (result.calories !== undefined) {
-        setCalories(result.calories.toString());
+        const calNum = Number(result.calories);
+        setCalories(Number.isNaN(calNum) ? '0' : calNum.toString());
       }
-      setCarbs(result.carbs);
-      setProtein(result.protein);
-      setFat(result.fat);
+      setCarbs(Number.isNaN(Number(result.carbs)) ? 0 : Number(result.carbs));
+      setProtein(Number.isNaN(Number(result.protein)) ? 0 : Number(result.protein));
+      setFat(Number.isNaN(Number(result.fat)) ? 0 : Number(result.fat));
     } catch (error: any) {
       console.error('음식 이미지 분석 실패:', error);
-      alert(
-        error?.message ||
-          'AI 분석에 실패했습니다. 사진이 음식인지 확인하시거나 API 키 설정을 확인해 주세요.'
-      );
+      const message = error?.message || 'AI 분석에 실패했습니다. 사진이 음식인지 확인하시거나 API 키 설정을 확인해 주세요.';
+      alert(message);
     } finally {
       setIsAnalyzing(false);
     }
@@ -140,9 +146,10 @@ export const MealSection: React.FC<MealSectionProps> = ({
 
       // 사진 업로드 즉시 AI 자동 분석 실행
       await triggerImageAnalysis(compressedDataUrl);
-    } catch (err) {
+    } catch (err: any) {
       console.error('이미지 압축 처리 오류:', err);
       alert('이미지를 불러오는 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    } finally {
       setIsCompressing(false);
       setIsAnalyzing(false);
     }
@@ -159,13 +166,16 @@ export const MealSection: React.FC<MealSectionProps> = ({
     e.preventDefault();
     if (!activeType || !name.trim() || !calories.trim()) return;
 
+    const parsedCalories = Number(calories);
+    const safeCalories = Number.isNaN(parsedCalories) ? 0 : Math.max(0, parsedCalories);
+
     onAddMeal({
       type: activeType,
       name: name.trim(),
-      calories: Number(calories) || 0,
-      carbs,
-      protein,
-      fat,
+      calories: safeCalories,
+      carbs: carbs !== undefined && !Number.isNaN(carbs) ? carbs : undefined,
+      protein: protein !== undefined && !Number.isNaN(protein) ? protein : undefined,
+      fat: fat !== undefined && !Number.isNaN(fat) ? fat : undefined,
       imageUrl: imageUrl || undefined,
     });
 
@@ -182,7 +192,10 @@ export const MealSection: React.FC<MealSectionProps> = ({
       <div className="space-y-2.5">
         {mealTypes.map(({ type, label }) => {
           const groupMeals = meals.filter((m) => m.type === type);
-          const subtotal = groupMeals.reduce((acc, m) => acc + m.calories, 0);
+          const subtotal = groupMeals.reduce((acc, m) => {
+            const cal = Number(m.calories);
+            return acc + (Number.isNaN(cal) ? 0 : cal);
+          }, 0);
           const isOpen = activeType === type;
 
           return (
