@@ -248,3 +248,112 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
       } catch (err: any) {
         lastError = err;
         console.warn(`[VisionService/Text] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
+        if (attempt < 2) {
+          await sleep(1500);
+        }
+      }
+    }
+  }
+
+  console.error('[VisionService/Text] 모든 모델 및 재시도 실패:', lastError);
+  throw new Error('일시적으로 AI 서버가 혼잡하거나 네트워크가 불안정합니다. 잠시 후 다시 시도해 주세요.');
+};
+
+/**
+ * 주간 식단표 사진(구내식당 안내표 등)에서 날짜/요일별 식단 메뉴를 추출하는 함수
+ */
+export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): Promise<string> => {
+  const apiKey = getApiKey();
+
+  const parts = base64ImageWithHeader.split(',');
+  const rawBase64 = parts.length > 1 ? parts[1].trim() : parts[0].trim();
+  const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
+  const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
+
+  const prompt = `당신은 문서 및 식단표 OCR 분석 전문가입니다.
+제공된 이미지에서 주간 식단표(구내식당, 급식표 등)의 요일/일자별 메뉴 텍스트를 정확하게 읽어내세요.
+
+[작성 형식]
+요일(또는 날짜)별로 한 줄씩 간결하고 명확하게 정리해 주세요.
+예시:
+월: 쌀밥, 제육볶음, 된장찌개, 배추김치
+화: 흑미밥, 닭볶음탕, 콩나물국, 깍두기
+수: 카레라이스, 팽이버섯장국, 치킨텐더, 단무지
+목: 현미밥, 소불고기, 미역국, 김치전
+금: 김치볶음밥, 계란파국, 군만두, 요구르트
+
+설명이나 인사말 없이 위 형식의 텍스트만 출력하세요.`;
+
+  const requestBody = {
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: rawBase64,
+            },
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+    },
+  };
+
+  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+  let lastError: any = null;
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.status === 503) {
+          console.warn(`[VisionService/MenuOCR] ${model} 503 과부하 발생 (시도 ${attempt}/2).`);
+          if (attempt < 2) {
+            await sleep(1500);
+            continue;
+          }
+          break;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`[VisionService/MenuOCR] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          if (attempt < 2) {
+            await sleep(1500);
+            continue;
+          }
+          break;
+        }
+
+        const data = await response.json();
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (candidateText && candidateText.trim().length > 0) {
+          return candidateText.trim();
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[VisionService/MenuOCR] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
+        if (attempt < 2) {
+          await sleep(1500);
+        }
+      }
+    }
+  }
+
+  console.error('[VisionService/MenuOCR] 주간 식단표 인식 실패:', lastError);
+  throw new Error('식단표 사진을 분석하지 못했습니다. 글자가 선명한 사진으로 다시 시도해 주세요.');
+};

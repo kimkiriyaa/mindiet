@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Camera, Loader2, Image as ImageIcon, X, Sparkles, Zap } from 'lucide-react';
+import { Plus, Trash2, Camera, Loader2, Image as ImageIcon, X, Sparkles, Zap, Check } from 'lucide-react';
 import { MealItem, MealType } from '../../types/diet';
 import { analyzeFoodImage, estimateNutritionFromText } from '../../services/visionService';
 
@@ -203,7 +203,18 @@ export const MealSection: React.FC<MealSectionProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeType || !name.trim() || !calories.trim()) return;
+    if (!activeType) {
+      alert('식사 분류(아침, 점심, 저녁, 간식)를 선택해 주세요.');
+      return;
+    }
+    if (!name.trim()) {
+      alert('음식 이름을 입력해 주세요.');
+      return;
+    }
+    if (!calories.trim()) {
+      alert('칼로리를 입력해 주세요.');
+      return;
+    }
 
     const parsedCalories = Number(calories);
     const safeCalories = Number.isNaN(parsedCalories) ? 0 : Math.max(0, parsedCalories);
@@ -264,7 +275,7 @@ export const MealSection: React.FC<MealSectionProps> = ({
 
               {/* 입력 폼 */}
               {isOpen && (
-                <form onSubmit={handleSubmit} className="mt-3 pt-3 border-t border-slate-100 space-y-2.5">
+                <form onSubmit={handleSubmit} className="mt-3 pt-3 border-t border-slate-100 space-y-3">
                   <div className="flex gap-2">
                     <div className="flex-1 relative">
                       <input
@@ -279,7 +290,7 @@ export const MealSection: React.FC<MealSectionProps> = ({
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         disabled={isBusy}
-                        className="w-full text-xs px-3 py-2 pr-20 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                        className="w-full text-xs px-3 py-2.5 pr-20 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
                         required
                       />
                       <button
@@ -309,14 +320,14 @@ export const MealSection: React.FC<MealSectionProps> = ({
                       value={calories}
                       onChange={(e) => setCalories(e.target.value)}
                       disabled={isBusy}
-                      className="w-24 text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      className="w-24 text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 font-semibold text-slate-800"
                       required
                     />
                   </div>
 
                   {/* 탄단지 자동 계산 수치 표시 안내 (계산된 경우) */}
                   {(carbs !== undefined || protein !== undefined || fat !== undefined) && (
-                    <div className="flex items-center gap-2 px-2 py-1 bg-emerald-50/60 rounded-lg text-[11px] text-emerald-700 font-medium">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/70 border border-emerald-100 rounded-xl text-[11px] text-emerald-700 font-medium">
                       <span>탄수화물 {carbs ?? 0}g</span>
                       <span>·</span>
                       <span>단백질 {protein ?? 0}g</span>
@@ -395,12 +406,23 @@ export const MealSection: React.FC<MealSectionProps> = ({
                     )}
                   </div>
 
+                  {/* 식단 추가 완료/저장 버튼 */}
                   <button
                     type="submit"
                     disabled={isBusy}
-                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-[0.99]"
+                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition shadow-sm active:scale-[0.99] flex items-center justify-center gap-1.5"
                   >
-                    {isBusy ? 'AI가 칼로리 계산 중...' : '추가 완료'}
+                    {isBusy ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>AI 처리 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>식단 기록 추가하기</span>
+                      </>
+                    )}
                   </button>
                 </form>
               )}
@@ -423,33 +445,4 @@ export const MealSection: React.FC<MealSectionProps> = ({
                           </div>
                         )}
                         <div>
-                          <div className="font-semibold text-slate-700">{meal.name}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {meal.calories} kcal
-                            {(meal.carbs !== undefined || meal.protein !== undefined || meal.fat !== undefined) && (
-                              <span className="ml-1 text-slate-400">
-                                (탄 {meal.carbs ?? 0}g · 단 {meal.protein ?? 0}g · 지 {meal.fat ?? 0}g)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => onDeleteMeal(meal.id)}
-                        className="text-slate-300 hover:text-rose-500 p-1 rounded-lg transition"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-};
+                          <div className="font-semibold text-slate-700">{
