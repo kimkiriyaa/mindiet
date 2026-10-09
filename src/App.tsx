@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Scale, Check, Dumbbell, Zap, Loader2 } from 'lucide-react';
+import { Scale, Check } from 'lucide-react';
 import { LoginView } from './components/auth/LoginView';
 import { HeaderNav } from './components/common/HeaderNav';
 import { CalorieDashboardCard } from './components/dashboard/CalorieDashboardCard';
@@ -7,7 +7,7 @@ import { CalorieSummaryCard } from './components/dashboard/CalorieSummaryCard';
 import { WaterTrackerCard } from './components/dashboard/WaterTrackerCard';
 import { WeightTrendCard } from './components/dashboard/WeightTrendCard';
 import { MealSection } from './components/meal/MealSection';
-import { WorkoutSection } from './components/workout/WorkoutSection';
+import { ActivitySection } from './components/activity/ActivitySection';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { UserSession, UserProfile, DailyLog, MealItem } from './types/diet';
 import { loadUserProfile, saveUserProfile } from './services/profileService';
@@ -72,10 +72,6 @@ export const App: React.FC = () => {
   });
   const [isWeightSaved, setIsWeightSaved] = useState<boolean>(false);
 
-  // 운동 입력란 상태
-  const [exerciseText, setExerciseText] = useState<string>(() => dailyLog.exerciseNotes || '');
-  const [isEstimatingExercise, setIsEstimatingExercise] = useState<boolean>(false);
-
   // 최근 체중 추이 데이터 상태
   const [recentWeightLogs, setRecentWeightLogs] = useState(() => getRecentWeightLogs(currentDate, 14));
 
@@ -97,7 +93,6 @@ export const App: React.FC = () => {
       };
       setDailyLog(sanitized);
       setWeightInput(sanitized.weight ? String(sanitized.weight) : (fallbackWeight ? String(fallbackWeight) : ''));
-      setExerciseText(sanitized.exerciseNotes || '');
     } else {
       const newEmptyLog: DailyLog = {
         date: currentDate,
@@ -111,7 +106,6 @@ export const App: React.FC = () => {
       };
       setDailyLog(newEmptyLog);
       setWeightInput(fallbackWeight ? String(fallbackWeight) : '');
-      setExerciseText('');
     }
 
     setRecentWeightLogs(getRecentWeightLogs(currentDate, 14));
@@ -196,7 +190,6 @@ export const App: React.FC = () => {
     };
     handleUpdateLog(updatedLog);
 
-    // 사용자 프로필 체중도 함께 동기화
     const updatedProfile: UserProfile = {
       ...profile,
       weight: validWeight,
@@ -204,7 +197,6 @@ export const App: React.FC = () => {
     setProfile(updatedProfile);
     saveUserProfile(updatedProfile);
 
-    // 저장 완료 피드백 표시 (1.5초)
     setIsWeightSaved(true);
     setTimeout(() => {
       setIsWeightSaved(false);
@@ -235,52 +227,32 @@ export const App: React.FC = () => {
     handleUpdateLog(updatedLog);
   };
 
-  const handleStepsChange = (steps: number) => {
-    const safeSteps = Math.max(0, safeVal(steps, 0));
-    const updatedLog: DailyLog = {
+  // 걸음 수 명시적 저장 핸들러
+  const handleSaveSteps = (stepsVal: number) => {
+    const safeSteps = Math.max(0, safeVal(stepsVal, 0));
+    handleUpdateLog({
       ...dailyLog,
       steps: safeSteps,
-    };
-    handleUpdateLog(updatedLog);
+    });
   };
 
-  // AI 운동 소모 칼로리 계산 핸들러
-  const handleEstimateExercise = async () => {
-    if (!exerciseText.trim()) {
-      alert('운동 내용을 입력해 주세요 (예: 헬스 가슴 운동 50분, 러닝 30분).');
-      return;
-    }
-
-    setIsEstimatingExercise(true);
-    try {
-      const currentWeight = safeVal(dailyLog.weight, safeVal(profile.weight, 65));
-      const result = await estimateExerciseCalories(exerciseText.trim(), currentWeight);
-      const updatedLog: DailyLog = {
-        ...dailyLog,
-        exerciseNotes: exerciseText.trim(),
-        exerciseCalories: safeVal(result.calories, 0),
-      };
-      handleUpdateLog(updatedLog);
-      alert(`운동 분석 완료: ${result.description} (약 ${result.calories} kcal 소모)`);
-    } catch (err: any) {
-      console.error('운동 분석 실패:', err);
-      alert(err?.message || '운동 칼로리 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.');
-    } finally {
-      setIsEstimatingExercise(false);
-    }
-  };
-
-  // 수동 운동 칼로리 변경 핸들러
-  const handleExerciseCaloriesChange = (valStr: string) => {
-    const parsed = Math.max(0, safeVal(valStr, 0));
-    const updatedLog: DailyLog = {
+  // 운동 기록 명시적 저장 핸들러
+  const handleSaveExercise = (notes: string, caloriesVal: number) => {
+    const safeExerciseCal = Math.max(0, safeVal(caloriesVal, 0));
+    handleUpdateLog({
       ...dailyLog,
-      exerciseCalories: parsed,
-      exerciseNotes: exerciseText,
-    };
-    handleUpdateLog(updatedLog);
+      exerciseNotes: notes,
+      exerciseCalories: safeExerciseCal,
+    });
   };
 
+  // AI 운동 칼로리 분석 연동
+  const handleEstimateExercise = async (text: string) => {
+    const currentWeight = safeVal(dailyLog.weight, safeVal(profile.weight, 65));
+    return await estimateExerciseCalories(text, currentWeight);
+  };
+
+  // 물 추가 및 즉시 저장
   const handleAddWater = (amount: number) => {
     const current = Math.max(0, safeVal(dailyLog.waterIntake, 0));
     const safeAmount = safeVal(amount, 0);
@@ -400,144 +372,4 @@ export const App: React.FC = () => {
               min="30"
               max="250"
               value={weightInput}
-              onChange={(e) => setWeightInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSaveWeight();
-                }
-              }}
-              placeholder={(profile.weight || 65).toString()}
-              className="w-16 px-2 py-1.5 text-right font-bold text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-indigo-600 placeholder:text-slate-300"
-            />
-            <span className="text-xs font-semibold text-slate-500 mr-1">kg</span>
-            <button
-              type="button"
-              onClick={handleSaveWeight}
-              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-xs active:scale-95 ${
-                isWeightSaved
-                  ? 'bg-emerald-500 text-white shadow-emerald-200'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
-              }`}
-            >
-              {isWeightSaved ? (
-                <>
-                  <Check className="w-3.5 h-3.5 stroke-[3]" />
-                  <span>저장됨</span>
-                </>
-              ) : (
-                <span>저장</span>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* 탄단지 영양 요약 카드 */}
-        <CalorieSummaryCard
-          targetCalories={targetCalories}
-          totals={nutritionTotals}
-        />
-
-        {/* 식단 기록 섹션 */}
-        <MealSection
-          meals={dailyLog.meals}
-          onAddMeal={handleAddMeal}
-          onDeleteMeal={handleDeleteMeal}
-        />
-
-        {/* 활동 및 걸음 수 + 운동 자율 입력 섹션 */}
-        <div className="space-y-3">
-          <WorkoutSection
-            steps={dailyLog.steps || 0}
-            onStepsChange={handleStepsChange}
-            burnedCalories={burnedStepCalories}
-          />
-
-          {/* 운동 내역 자율 입력 및 AI 소모 칼로리 계산 카드 */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
-                  <Dumbbell className="w-4 h-4" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-800">추가 운동 기록</h3>
-              </div>
-              <div className="text-xs font-bold text-orange-600">
-                -{exerciseCalories} kcal
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="운동 내용 (예: 헬스 50분, 빠른 걸음 30분)"
-                  value={exerciseText}
-                  onChange={(e) => setExerciseText(e.target.value)}
-                  disabled={isEstimatingExercise}
-                  className="w-full text-xs px-3 py-2.5 pr-24 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500 disabled:bg-slate-100"
-                />
-                <button
-                  type="button"
-                  onClick={handleEstimateExercise}
-                  disabled={isEstimatingExercise || !exerciseText.trim()}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-[10px] font-bold transition flex items-center gap-0.5"
-                >
-                  {isEstimatingExercise ? (
-                    <>
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                      <span>계산 중</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-2.5 h-2.5" />
-                      <span>AI 계산</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-[11px] text-slate-400">직접 칼로리 수정</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min="0"
-                    value={dailyLog.exerciseCalories || ''}
-                    onChange={(e) => handleExerciseCaloriesChange(e.target.value)}
-                    placeholder="0"
-                    className="w-20 px-2 py-1 text-right text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500"
-                  />
-                  <span className="text-xs text-slate-500 font-semibold">kcal</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 수분 섭취 카드 */}
-        <WaterTrackerCard
-          waterIntake={dailyLog.waterIntake || 0}
-          targetWater={profile.targetWater || 2000}
-          onAddWater={handleAddWater}
-        />
-
-        {/* 최하단 최근 14일 몸무게 추이 그래프 */}
-        <WeightTrendCard
-          logs={recentWeightLogs}
-          currentWeight={dailyLog.weight ?? profile.weight}
-        />
-      </main>
-
-      {/* 신체 정보 및 설정 모달 */}
-      <ProfileModal
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        profile={profile}
-        onSaveProfile={handleSaveProfile}
-      />
-    </div>
-  );
-};
-
-export default App;
+              onChange={(e) => setWeightInput(e.target.value
