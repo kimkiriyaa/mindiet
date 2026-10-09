@@ -175,17 +175,19 @@ export const App: React.FC = () => {
       fat: mealData.fat !== undefined ? Math.max(0, safeNumber(mealData.fat, 0)) : undefined,
       id: Date.now().toString(),
     };
-    handleUpdateLog({
+    const updatedLog: DailyLog = {
       ...dailyLog,
       meals: [...dailyLog.meals, newMeal],
-    });
+    };
+    handleUpdateLog(updatedLog);
   };
 
   const handleDeleteMeal = (id: string) => {
-    handleUpdateLog({
+    const updatedLog: DailyLog = {
       ...dailyLog,
       meals: dailyLog.meals.filter((m) => m.id !== id),
-    });
+    };
+    handleUpdateLog(updatedLog);
   };
 
   const handleStepsChange = (steps: number) => {

@@ -16,6 +16,9 @@ const mealTypes: { type: MealType; label: string }[] = [
   { type: 'snack', label: '간식' },
 ];
 
+/**
+ * AI 분석용 이미지 압축 (최대 800px)
+ */
 const compressImage = (file: File, maxWidth = 800, quality = 0.75): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -49,6 +52,44 @@ const compressImage = (file: File, maxWidth = 800, quality = 0.75): Promise<stri
       img.src = e.target?.result as string;
     };
     reader.readAsDataURL(file);
+  });
+};
+
+/**
+ * localStorage 저장용 초경량 썸네일 생성 (최대 160px, JPEG 0.5)
+ */
+const createThumbnail = (base64Str: string, maxDim = 160, quality = 0.5): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!base64Str) {
+      resolve('');
+      return;
+    }
+    const img = new Image();
+    img.onerror = () => resolve('');
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve('');
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = base64Str;
   });
 };
 
@@ -219,7 +260,7 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     if (afterFileRef.current) afterFileRef.current.value = '';
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeType) {
       alert('식사 분류(아침, 점심, 저녁, 간식)를 선택해 주세요.');
@@ -237,6 +278,17 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     const parsedCalories = Number(calories);
     const safeCalories = Number.isNaN(parsedCalories) ? 0 : Math.max(0, parsedCalories);
 
+    // localStorage 용량 절약을 위해 저장 시에는 160px 초경량 썸네일로 변환
+    let savedThumbnail: string | undefined = undefined;
+    const rawImageToSave = beforeImageUrl || afterImageUrl;
+    if (rawImageToSave) {
+      try {
+        savedThumbnail = await createThumbnail(rawImageToSave);
+      } catch {
+        savedThumbnail = undefined;
+      }
+    }
+
     onAddMeal({
       type: activeType,
       name: name.trim(),
@@ -244,9 +296,10 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
       carbs: carbs !== undefined && !Number.isNaN(carbs) ? carbs : undefined,
       protein: protein !== undefined && !Number.isNaN(protein) ? protein : undefined,
       fat: fat !== undefined && !Number.isNaN(fat) ? fat : undefined,
-      imageUrl: beforeImageUrl || afterImageUrl || undefined,
+      imageUrl: savedThumbnail,
     });
 
+    alert('식단이 성공적으로 등록되었습니다.');
     resetForm();
     setActiveType(null);
   };
