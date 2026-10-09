@@ -83,12 +83,24 @@ export const saveRegisteredUsers = (users: AuthUser[]): void => {
   }
 };
 
-export const registerUser = (
-  user: Omit<AuthUser, 'createdAt'>
-): { success: boolean; message: string } => {
-  const trimmedId = user.userId.trim();
-  const trimmedName = user.userName.trim();
-  const trimmedPassword = user.password.trim();
+export interface LocalAuthResult {
+  success: boolean;
+  message?: string;
+  user?: {
+    userId: string;
+    name: string;
+    userName?: string;
+  };
+}
+
+export const registerUserLocal = (
+  userId: string,
+  password: string,
+  name: string
+): LocalAuthResult => {
+  const trimmedId = userId.trim();
+  const trimmedName = name.trim();
+  const trimmedPassword = password.trim();
 
   if (!trimmedId || !trimmedPassword || !trimmedName) {
     return { success: false, message: '모든 필드를 입력해 주세요.' };
@@ -111,13 +123,21 @@ export const registerUser = (
   };
 
   saveRegisteredUsers([...users, newUser]);
-  return { success: true, message: '회원가입이 완료되었습니다.' };
+  return {
+    success: true,
+    message: '회원가입이 완료되었습니다.',
+    user: {
+      userId: trimmedId,
+      name: trimmedName,
+      userName: trimmedName,
+    },
+  };
 };
 
-export const authenticateUser = (
+export const loginUserLocal = (
   userId: string,
   password: string
-): { success: boolean; session?: UserSession; message?: string } => {
+): LocalAuthResult => {
   const trimmedId = userId.trim();
   const trimmedPassword = password.trim();
 
@@ -132,150 +152,24 @@ export const authenticateUser = (
     return { success: false, message: '아이디 또는 비밀번호가 일치하지 않습니다.' };
   }
 
-  const session: UserSession = {
-    userId: found.userId,
-    userName: found.userName,
+  return {
+    success: true,
+    user: {
+      userId: found.userId,
+      name: found.userName,
+      userName: found.userName,
+    },
   };
-
-  return { success: true, session };
 };
 
-export const getSavedSession = (): UserSession | null => {
-  try {
-    const raw = localStorage.getItem(CURRENT_SESSION_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as UserSession;
-  } catch {
-    return null;
-  }
-};
-
-export const setSavedSession = (session: UserSession | null): void => {
-  try {
-    if (session) {
-      localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(session));
-    } else {
-      localStorage.removeItem(CURRENT_SESSION_KEY);
-    }
-  } catch (e) {
-    console.error('Failed to save session to localStorage:', e);
-  }
-};
-
-export const loadDailyLog = (date: string, userId?: string): DailyLog | null => {
-  const key = getLogStorageKey(date, userId);
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        return {
-          date: parsed.date || date,
-          userId: parsed.userId || userId,
-          targetCalories: parsed.targetCalories ?? DEFAULT_TARGET_CALORIES,
-          steps: parsed.steps ?? 0,
-          meals: Array.isArray(parsed.meals) ? parsed.meals : [],
-          waterIntake: parsed.waterIntake ?? parsed.water ?? 0,
-          weight: parsed.weight,
-          exerciseCalories: parsed.exerciseCalories ?? 0,
-          exerciseNotes: parsed.exerciseNotes || '',
-        };
-      }
-    }
-
-    // 마이그레이션: 기존 diet_logs_ 키 형식 지원
-    const legacyKey = `${LEGACY_STORAGE_KEY_PREFIX}${date}`;
-    const legacyRaw = localStorage.getItem(legacyKey);
-    if (legacyRaw) {
-      const parsedLegacy = JSON.parse(legacyRaw);
-      if (parsedLegacy && typeof parsedLegacy === 'object') {
-        const migrated: DailyLog = {
-          date: parsedLegacy.date || date,
-          userId: parsedLegacy.userId || userId,
-          targetCalories: parsedLegacy.targetCalories ?? DEFAULT_TARGET_CALORIES,
-          steps: parsedLegacy.steps ?? 0,
-          meals: Array.isArray(parsedLegacy.meals) ? parsedLegacy.meals : [],
-          waterIntake: parsedLegacy.waterIntake ?? parsedLegacy.water ?? 0,
-          weight: parsedLegacy.weight,
-          exerciseCalories: parsedLegacy.exerciseCalories ?? 0,
-          exerciseNotes: parsedLegacy.exerciseNotes || '',
-        };
-        localStorage.setItem(key, JSON.stringify(migrated));
-        return migrated;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load daily log from localStorage:', e);
-  }
-  return null;
-};
-
-export const saveDailyLog = (log: DailyLog, userId?: string): void => {
-  const key = getLogStorageKey(log.date, userId || log.userId);
-  try {
-    localStorage.setItem(key, JSON.stringify(log));
-  } catch (e) {
-    console.error('Failed to save daily log to localStorage:', e);
-  }
-};
-
-export interface WeightLogPoint {
-  date: string;
-  weight?: number;
-}
-
-export const getRecentWeightLogs = (
-  baseDate: string,
-  days = 14,
-  userId?: string
-): WeightLogPoint[] => {
-  const results: WeightLogPoint[] = [];
-  const base = new Date(baseDate);
-
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(base);
-    d.setDate(base.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const log = loadDailyLog(dateStr, userId);
-    results.push({
-      date: dateStr,
-      weight: log?.weight,
-    });
-  }
-
-  return results;
-};
-
-export const syncToGoogleSheet = async (log: DailyLog): Promise<boolean> => {
-  if (!GOOGLE_SHEET_SCRIPT_URL) {
-    return false;
-  }
+export const syncAuthToGoogleSheet = async (
+  mode: 'register' | 'login',
+  userId: string,
+  password: string,
+  name?: string
+): Promise<void> => {
+  if (!GOOGLE_SHEET_SCRIPT_URL) return;
 
   try {
     const payload = {
-      action: 'saveLog',
-      date: log.date,
-      userId: log.userId,
-      targetCalories: log.targetCalories,
-      steps: log.steps,
-      waterIntake: log.waterIntake,
-      weight: log.weight,
-      exerciseCalories: log.exerciseCalories,
-      exerciseNotes: log.exerciseNotes,
-      meals: log.meals,
-    };
-
-    const response = await fetch(GOOGLE_SHEET_SCRIPT_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    return response.ok;
-  } catch (e) {
-    console.warn('Google Sheet sync skipped or failed:', e);
-    return false;
-  }
-};
+      action
