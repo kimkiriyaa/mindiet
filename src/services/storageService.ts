@@ -24,6 +24,7 @@ export const getDailyLog = (date: string): DailyLog => {
     return {
       ...getEmptyDailyLog(date),
       ...parsed,
+      waterIntake: parsed.waterIntake !== undefined ? parsed.waterIntake : (parsed.water ?? 0),
     };
   } catch (error) {
     console.error('Failed to load daily log from localStorage:', error);
@@ -64,9 +65,35 @@ export const loadDailyLog = (dateStr: string): DailyLog | null => {
     const data =
       localStorage.getItem(`${STORAGE_KEY_PREFIX}${dateStr}`) ||
       localStorage.getItem(`${LEGACY_KEY_PREFIX}${dateStr}`);
-    return data ? (JSON.parse(data) as DailyLog) : null;
+    if (!data) return null;
+    const parsed = JSON.parse(data) as DailyLog;
+    return {
+      ...parsed,
+      waterIntake: parsed.waterIntake !== undefined ? parsed.waterIntake : (parsed.water ?? 0),
+    };
   } catch (error) {
     console.error('[StorageService] loadDailyLog 오류:', error);
     return null;
   }
+};
+
+/**
+ * 최근 N일간의 체중 기록을 수집하는 헬퍼 함수
+ */
+export const getRecentWeightLogs = (baseDateStr: string, days = 14): { date: string; weight?: number }[] => {
+  const result: { date: string; weight?: number }[] = [];
+  const base = new Date(baseDateStr);
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(base);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const log = loadDailyLog(dateStr);
+    result.push({
+      date: dateStr,
+      weight: log?.weight && log.weight > 0 ? log.weight : undefined,
+    });
+  }
+
+  return result;
 };

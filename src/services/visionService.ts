@@ -7,6 +7,11 @@ export interface FoodVisionAnalysisResult {
   description?: string;
 }
 
+export interface ExerciseAnalysisResult {
+  calories: number;
+  description: string;
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getApiKey = (): string => {
@@ -293,6 +298,110 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
 };
 
 /**
+ * 사용자 체중과 운동 내역 텍스트를 기반으로 예상 소모 칼로리를 추정하는 함수
+ */
+export const estimateExerciseCalories = async (
+  exerciseText: string,
+  currentWeight: number = 65
+): Promise<ExerciseAnalysisResult> => {
+  const apiKey = getApiKey();
+  const trimmedText = exerciseText.trim();
+  if (!trimmedText) {
+    throw new Error('운동 내용을 입력해 주세요.');
+  }
+
+  const safeWeight = currentWeight > 0 ? currentWeight : 65;
+  const prompt = `운동생리학 및 칼로리 소비 전문 AI입니다.
+체중: ${safeWeight}kg
+운동 내용: "${trimmedText}"
+
+위 운동에 따른 예상 소모 칼로리(kcal)와 간단한 설명을 산출하세요.
+반드시 아래 순수 JSON 포맷으로만 응답:
+{"calories": 280, "description": "헬스 웨이트 트레이닝 50분 기준 예상 소모량"}`;
+
+  const requestBody = {
+    contents: [
+      {
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 200,
+      response_mime_type: 'application/json',
+    },
+  };
+
+  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+  let lastError: any = null;
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+        const response = await fetchWithTimeout(
+          endpoint,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          },
+          8000
+        );
+
+        if (response.status === 503) {
+          console.warn(`[VisionService/Exercise] ${model} 503 과부하 (시도 ${attempt}/2).`);
+          if (attempt < 2) {
+            await sleep(600);
+            continue;
+          }
+          break;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`[VisionService/Exercise] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          if (attempt < 2) {
+            await sleep(600);
+            continue;
+          }
+          break;
+        }
+
+        const data = await response.json();
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!candidateText) {
+          throw new Error('운동 분석 결과를 전달받지 못했습니다.');
+        }
+
+        const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleanedText);
+
+        const parsedCalories = Number(parsed.calories);
+
+        return {
+          calories: Number.isFinite(parsedCalories) ? Math.max(0, Math.round(parsedCalories)) : 0,
+          description: parsed.description ? String(parsed.description).trim() : '운동 소모 칼로리',
+        };
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[VisionService/Exercise] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
+        if (attempt < 2) {
+          await sleep(600);
+        }
+      }
+    }
+  }
+
+  console.error('[VisionService/Exercise] 모든 모델 및 재시도 실패:', lastError);
+  throw new Error('일시적으로 AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.');
+};
+
+/**
  * 주간 식단표 사진(구내식당 안내표 등)에서 날짜/요일별 식단 메뉴를 추출하는 함수
  */
 export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): Promise<string> => {
@@ -350,40 +459,4 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
         );
 
         if (response.status === 503) {
-          console.warn(`[VisionService/MenuOCR] ${model} 503 과부하 (시도 ${attempt}/2).`);
-          if (attempt < 2) {
-            await sleep(600);
-            continue;
-          }
-          break;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.warn(`[VisionService/MenuOCR] ${model} 호출 실패 [${response.status}]: ${errorText}`);
-          if (attempt < 2) {
-            await sleep(600);
-            continue;
-          }
-          break;
-        }
-
-        const data = await response.json();
-        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (candidateText && candidateText.trim().length > 0) {
-          return candidateText.trim();
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[VisionService/MenuOCR] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
-        if (attempt < 2) {
-          await sleep(600);
-        }
-      }
-    }
-  }
-
-  console.error('[VisionService/MenuOCR] 주간 식단표 인식 실패:', lastError);
-  throw new Error('식단표 사진을 분석하지 못했습니다. 글자가 선명한 사진으로 다시 시도해 주세요.');
-};
+          console.warn(`[VisionService/MenuOCR] ${model} 503 과
