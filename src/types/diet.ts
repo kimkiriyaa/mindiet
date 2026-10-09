@@ -5,6 +5,13 @@ export interface UserSession {
   userName: string;
 }
 
+export interface AuthUser {
+  userId: string;
+  password: string;
+  userName: string;
+  createdAt?: string;
+}
+
 export interface UserProfile {
   birthDate: string;
   gender: 'male' | 'female';
