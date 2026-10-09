@@ -35,5 +35,8 @@ export interface DailyLog {
   steps: number;
   meals: MealItem[];
   waterIntake?: number;
+  water?: number;
   weight?: number;
+  exerciseCalories?: number;
+  exerciseNotes?: string;
 }
