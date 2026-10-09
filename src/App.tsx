@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Scale } from 'lucide-react';
+import { Scale, Check } from 'lucide-react';
 import { LoginView } from './components/auth/LoginView';
 import { HeaderNav } from './components/common/HeaderNav';
 import { CalorieDashboardCard } from './components/dashboard/CalorieDashboardCard';
@@ -53,41 +53,53 @@ export const App: React.FC = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   const [dailyLog, setDailyLog] = useState<DailyLog>(() => {
-    return (
-      loadDailyLog(currentDate) || {
-        date: currentDate,
-        targetCalories: safeNumber(profile.targetCalories, 2000),
-        steps: 0,
-        meals: [],
-        waterIntake: 0,
-        weight: safeNumber(profile.weight, 70),
-      }
-    );
+    const loaded = loadDailyLog(currentDate);
+    if (loaded) {
+      return loaded;
+    }
+    return {
+      date: currentDate,
+      targetCalories: safeNumber(profile.targetCalories, 2000),
+      steps: 0,
+      meals: [],
+      waterIntake: 0,
+      weight: profile.weight ? safeNumber(profile.weight, 70) : undefined,
+    };
   });
+
+  // 몸무게 입력란 로컬 상태 및 저장 완료 피드백 상태
+  const [weightInput, setWeightInput] = useState<string>(() => {
+    return dailyLog.weight ? String(dailyLog.weight) : (profile.weight ? String(profile.weight) : '');
+  });
+  const [isWeightSaved, setIsWeightSaved] = useState<boolean>(false);
 
   useEffect(() => {
     const log = loadDailyLog(currentDate);
     const fallbackTarget = safeNumber(profile.targetCalories, 2000);
-    const fallbackWeight = safeNumber(profile.weight, 70);
+    const fallbackWeight = profile.weight ? safeNumber(profile.weight, 70) : undefined;
 
     if (log) {
-      setDailyLog({
+      const sanitized: DailyLog = {
         ...log,
         targetCalories: safeNumber(log.targetCalories, fallbackTarget),
         steps: Math.max(0, safeNumber(log.steps, 0)),
         waterIntake: Math.max(0, safeNumber(log.waterIntake, 0)),
-        weight: log.weight !== undefined ? safeNumber(log.weight, fallbackWeight) : fallbackWeight,
+        weight: log.weight !== undefined ? safeNumber(log.weight, fallbackWeight ?? 70) : fallbackWeight,
         meals: Array.isArray(log.meals) ? log.meals : [],
-      });
+      };
+      setDailyLog(sanitized);
+      setWeightInput(sanitized.weight ? String(sanitized.weight) : (fallbackWeight ? String(fallbackWeight) : ''));
     } else {
-      setDailyLog({
+      const newEmptyLog: DailyLog = {
         date: currentDate,
         targetCalories: fallbackTarget,
         steps: 0,
         meals: [],
         waterIntake: 0,
         weight: fallbackWeight,
-      });
+      };
+      setDailyLog(newEmptyLog);
+      setWeightInput(fallbackWeight ? String(fallbackWeight) : '');
     }
   }, [currentDate, profile.targetCalories, profile.weight]);
 
@@ -152,18 +164,34 @@ export const App: React.FC = () => {
     }
   };
 
-  // 오늘 체중 변경 시 dailyLog 및 profile 즉시 동기화
-  const handleWeightChange = (newWeightStr: string) => {
-    const numericWeight = safeNumber(newWeightStr, 0);
-    handleUpdateLog({
-      ...dailyLog,
-      weight: numericWeight > 0 ? numericWeight : undefined,
-    });
-    if (numericWeight > 0) {
-      const updatedProfile = { ...profile, weight: numericWeight };
-      setProfile(updatedProfile);
-      saveUserProfile(updatedProfile);
+  // 몸무게 저장 버튼 클릭 또는 엔터 키 입력 시 저장 핸들러
+  const handleSaveWeight = () => {
+    const parsed = parseFloat(weightInput.trim());
+    if (isNaN(parsed) || parsed < 30 || parsed > 250) {
+      alert('체중을 30kg ~ 250kg 사이의 숫자로 올바르게 입력해 주세요.');
+      return;
     }
+
+    const validWeight = Math.round(parsed * 10) / 10;
+    const updatedLog: DailyLog = {
+      ...dailyLog,
+      weight: validWeight,
+    };
+    handleUpdateLog(updatedLog);
+
+    // 사용자 프로필 체중도 함께 동기화
+    const updatedProfile: UserProfile = {
+      ...profile,
+      weight: validWeight,
+    };
+    setProfile(updatedProfile);
+    saveUserProfile(updatedProfile);
+
+    // 저장 완료 피드백 표시 (1.5초)
+    setIsWeightSaved(true);
+    setTimeout(() => {
+      setIsWeightSaved(false);
+    }, 1500);
   };
 
   const handleAddMeal = (mealData: Omit<MealItem, 'id'>) => {
@@ -191,19 +219,22 @@ export const App: React.FC = () => {
   };
 
   const handleStepsChange = (steps: number) => {
-    handleUpdateLog({
+    const safeSteps = Math.max(0, safeNumber(steps, 0));
+    const updatedLog: DailyLog = {
       ...dailyLog,
-      steps: Math.max(0, safeNumber(steps, 0)),
-    });
+      steps: safeSteps,
+    };
+    handleUpdateLog(updatedLog);
   };
 
   const handleAddWater = (amount: number) => {
     const current = Math.max(0, safeNumber(dailyLog.waterIntake, 0));
     const safeAmount = safeNumber(amount, 0);
-    handleUpdateLog({
+    const updatedLog: DailyLog = {
       ...dailyLog,
       waterIntake: Math.max(0, current + safeAmount),
-    });
+    };
+    handleUpdateLog(updatedLog);
   };
 
   // 총 섭취 칼로리 계산 (NaN 방어)
@@ -287,7 +318,7 @@ export const App: React.FC = () => {
           burnedStepCalories={burnedStepCalories}
         />
 
-        {/* 오늘 체중(kg) 간편 입력 컴팩트 카드 */}
+        {/* 오늘 체중(kg) 직관적 입력 및 저장 카드 */}
         <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -304,12 +335,36 @@ export const App: React.FC = () => {
               step="0.1"
               min="30"
               max="250"
-              value={dailyLog.weight ?? ''}
-              onChange={(e) => handleWeightChange(e.target.value)}
+              value={weightInput}
+              onChange={(e) => setWeightInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveWeight();
+                }
+              }}
               placeholder={(profile.weight || 65).toString()}
-              className="w-20 px-2.5 py-1.5 text-right font-bold text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-indigo-600 placeholder:text-slate-300"
+              className="w-16 px-2 py-1.5 text-right font-bold text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-indigo-600 placeholder:text-slate-300"
             />
-            <span className="text-xs font-semibold text-slate-500">kg</span>
+            <span className="text-xs font-semibold text-slate-500 mr-1">kg</span>
+            <button
+              type="button"
+              onClick={handleSaveWeight}
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-xs active:scale-95 ${
+                isWeightSaved
+                  ? 'bg-emerald-500 text-white shadow-emerald-200'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+              }`}
+            >
+              {isWeightSaved ? (
+                <>
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>저장됨</span>
+                </>
+              ) : (
+                <span>저장</span>
+              )}
+            </button>
           </div>
         </div>
 
