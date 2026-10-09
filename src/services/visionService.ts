@@ -459,4 +459,40 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
         );
 
         if (response.status === 503) {
-          console.warn(`[VisionService/MenuOCR] ${model} 503 과
+          console.warn(`[VisionService/MenuOCR] ${model} 503 과부하 (시도 ${attempt}/2).`);
+          if (attempt < 2) {
+            await sleep(600);
+            continue;
+          }
+          break;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`[VisionService/MenuOCR] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          if (attempt < 2) {
+            await sleep(600);
+            continue;
+          }
+          break;
+        }
+
+        const data = await response.json();
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (candidateText && candidateText.trim().length > 0) {
+          return candidateText.trim();
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[VisionService/MenuOCR] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
+        if (attempt < 2) {
+          await sleep(600);
+        }
+      }
+    }
+  }
+
+  console.error('[VisionService/MenuOCR] 주간 식단표 인식 실패:', lastError);
+  throw new Error('식단표 사진을 분석하지 못했습니다. 글자가 선명한 사진으로 다시 시도해 주세요.');
+};
