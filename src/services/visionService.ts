@@ -30,9 +30,9 @@ const getApiKey = (): string => {
 };
 
 /**
- * fetch 요청에 지정된 시간(ms) 타임아웃을 적용하는 헬퍼 함수
+ * fetch 요청에 지정된 시간(ms) 타임아웃을 적용하는 헬퍼 함수 (기본 20초)
  */
-const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 8000): Promise<Response> => {
+const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 20000): Promise<Response> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -46,8 +46,11 @@ const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 8
   }
 };
 
+// 안정적이고 빠른 순서의 모델 체인
+const FAST_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
 /**
- * 1장 또는 2장(식사 전, 식사 후 잔반)의 사진을 받아 순 섭취량을 분석하는 고도화 함수
+ * 1장 또는 2장(식사 전, 식사 후 잔반)의 사진을 받아 순 섭취량을 초고속 분석하는 함수
  */
 export const analyzeMealPhoto = async (
   images: string | string[],
@@ -63,25 +66,12 @@ export const analyzeMealPhoto = async (
   const isMultiPhoto = imageList.length >= 2;
 
   const weeklyMenuPlan = (localStorage.getItem('weekly_menu_plan') || '').trim();
-  const menuPlanContext = weeklyMenuPlan
-    ? `\n[예정식단표]: ${weeklyMenuPlan}`
-    : '';
+  const menuPlanContext = weeklyMenuPlan ? ` 식단표 참고:${weeklyMenuPlan}` : '';
+  const notesContext = userNotes && userNotes.trim() ? ` 메모:${userNotes.trim()}` : '';
 
-  const notesContext = userNotes && userNotes.trim()
-    ? `\n[메모]: ${userNotes.trim()}`
-    : '';
-
-  let prompt = '';
-  if (isMultiPhoto) {
-    prompt = `영양사 AI입니다. 1번: 식사 전, 2번: 식사 후 잔반.
-두 사진을 대조하여 실제 순 섭취량(배식량-잔반량) 기준 영양소를 계산하세요.
-반드시 아래 JSON 포맷으로만 응답:${menuPlanContext}${notesContext}
-{"name": "식단 대표명 (순섭취)", "calories": 480, "carbs": 58, "protein": 26, "fat": 15, "description": "섭취 요약"}`;
-  } else {
-    prompt = `영양사 AI입니다. 사진 속 식단의 1인분 예상 칼로리와 영양소를 계산하세요.
-반드시 아래 JSON 포맷으로만 응답:${menuPlanContext}${notesContext}
-{"name": "식단 대표명", "calories": 550, "carbs": 65, "protein": 27, "fat": 18, "description": "메뉴 구성"}`;
-  }
+  const prompt = isMultiPhoto
+    ? `1번은 식사 전, 2번은 식사 후 잔반 사진입니다. 잔반을 뺀 순 섭취량 기준 영양소를 JSON으로만 응답: {"name": string, "calories": number, "carbs": number, "protein": number, "fat": number, "description": string}${menuPlanContext}${notesContext}`
+    : `사진 속 음식의 1인분 예상 칼로리와 영양소를 JSON으로만 응답: {"name": string, "calories": number, "carbs": number, "protein": number, "fat": number, "description": string}${menuPlanContext}${notesContext}`;
 
   const parts: any[] = [{ text: prompt }];
 
@@ -100,22 +90,18 @@ export const analyzeMealPhoto = async (
   });
 
   const requestBody = {
-    contents: [
-      {
-        parts,
-      },
-    ],
+    contents: [{ parts }],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 300,
-      response_mime_type: 'application/json',
+      maxOutputTokens: 250,
+      responseMimeType: 'application/json',
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
-  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
 
-  for (const model of models) {
+  for (const model of FAST_MODELS) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -124,18 +110,16 @@ export const analyzeMealPhoto = async (
           endpoint,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
           },
-          8000
+          20000
         );
 
-        if (response.status === 503) {
-          console.warn(`[VisionService] ${model} 503 과부하 (시도 ${attempt}/2).`);
+        if (response.status === 503 || response.status === 429) {
+          console.warn(`[VisionService] ${model} 과부하/제한 (${response.status}, 시도 ${attempt}/2)`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -143,9 +127,9 @@ export const analyzeMealPhoto = async (
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.warn(`[VisionService] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          console.warn(`[VisionService] ${model} 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -155,7 +139,7 @@ export const analyzeMealPhoto = async (
         const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!candidateText) {
-          throw new Error('음식 인식 결과를 전달받지 못했습니다.');
+          throw new Error('분석 결과를 전달받지 못했습니다.');
         }
 
         const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -178,13 +162,13 @@ export const analyzeMealPhoto = async (
         lastError = err;
         console.warn(`[VisionService] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(600);
+          await sleep(500);
         }
       }
     }
   }
 
-  console.error('[VisionService] 모든 모델 및 재시도 실패:', lastError);
+  console.error('[VisionService] 모든 모델 실패:', lastError);
   throw new Error('일시적으로 AI 서버가 혼잡하거나 지연이 발생했습니다. 잠시 후 다시 시도해 주세요.');
 };
 
@@ -196,7 +180,7 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
 };
 
 /**
- * 텍스트 음식명을 입력받아 칼로리와 영양성분을 정밀 추정하는 함수
+ * 텍스트 음식명을 입력받아 칼로리와 영양성분을 초고속 추정하는 함수
  */
 export const estimateNutritionFromText = async (foodName: string): Promise<FoodVisionAnalysisResult> => {
   const apiKey = getApiKey();
@@ -205,27 +189,21 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
     throw new Error('음식명을 입력해 주세요.');
   }
 
-  const prompt = `영양사 AI입니다. "${trimmedName}" 음식의 일반적인 1회 섭취량 기준 영양소를 계산하세요.
-반드시 아래 JSON 포맷으로만 응답:
-{"name": "${trimmedName}", "calories": 250, "carbs": 30, "protein": 15, "fat": 5}`;
+  const prompt = `음식 "${trimmedName}" 1회 섭취량 영양소를 JSON으로만 반환: {"name": "${trimmedName}", "calories": number, "carbs": number, "protein": number, "fat": number}`;
 
   const requestBody = {
-    contents: [
-      {
-        parts: [{ text: prompt }],
-      },
-    ],
+    contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 200,
-      response_mime_type: 'application/json',
+      responseMimeType: 'application/json',
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
-  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
 
-  for (const model of models) {
+  for (const model of FAST_MODELS) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -234,18 +212,16 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
           endpoint,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
           },
-          8000
+          20000
         );
 
-        if (response.status === 503) {
-          console.warn(`[VisionService/Text] ${model} 503 과부하 (시도 ${attempt}/2).`);
+        if (response.status === 503 || response.status === 429) {
+          console.warn(`[VisionService/Text] ${model} 과부하/제한 (${response.status})`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -253,9 +229,9 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.warn(`[VisionService/Text] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          console.warn(`[VisionService/Text] ${model} 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -287,18 +263,18 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
         lastError = err;
         console.warn(`[VisionService/Text] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(600);
+          await sleep(500);
         }
       }
     }
   }
 
-  console.error('[VisionService/Text] 모든 모델 및 재시도 실패:', lastError);
+  console.error('[VisionService/Text] 모든 모델 실패:', lastError);
   throw new Error('일시적으로 AI 서버가 혼잡하거나 지연이 발생했습니다. 잠시 후 다시 시도해 주세요.');
 };
 
 /**
- * 사용자 체중과 운동 내역 텍스트를 기반으로 예상 소모 칼로리를 추정하는 함수
+ * 사용자 체중과 운동 내역 텍스트를 기반으로 예상 소모 칼로리를 초고속 추정하는 함수
  */
 export const estimateExerciseCalories = async (
   exerciseText: string,
@@ -311,31 +287,21 @@ export const estimateExerciseCalories = async (
   }
 
   const safeWeight = currentWeight > 0 ? currentWeight : 65;
-  const prompt = `운동생리학 및 칼로리 소비 전문 AI입니다.
-체중: ${safeWeight}kg
-운동 내용: "${trimmedText}"
-
-위 운동에 따른 예상 소모 칼로리(kcal)와 간단한 설명을 산출하세요.
-반드시 아래 순수 JSON 포맷으로만 응답:
-{"calories": 280, "description": "헬스 웨이트 트레이닝 50분 기준 예상 소모량"}`;
+  const prompt = `체중 ${safeWeight}kg 기준 "${trimmedText}" 운동 소모 칼로리를 JSON으로만 반환: {"calories": number, "description": string}`;
 
   const requestBody = {
-    contents: [
-      {
-        parts: [{ text: prompt }],
-      },
-    ],
+    contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 200,
-      response_mime_type: 'application/json',
+      responseMimeType: 'application/json',
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
-  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
 
-  for (const model of models) {
+  for (const model of FAST_MODELS) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -344,18 +310,16 @@ export const estimateExerciseCalories = async (
           endpoint,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
           },
-          8000
+          20000
         );
 
-        if (response.status === 503) {
-          console.warn(`[VisionService/Exercise] ${model} 503 과부하 (시도 ${attempt}/2).`);
+        if (response.status === 503 || response.status === 429) {
+          console.warn(`[VisionService/Exercise] ${model} 과부하/제한 (${response.status})`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -363,9 +327,9 @@ export const estimateExerciseCalories = async (
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.warn(`[VisionService/Exercise] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          console.warn(`[VisionService/Exercise] ${model} 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -391,13 +355,13 @@ export const estimateExerciseCalories = async (
         lastError = err;
         console.warn(`[VisionService/Exercise] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(600);
+          await sleep(500);
         }
       }
     }
   }
 
-  console.error('[VisionService/Exercise] 모든 모델 및 재시도 실패:', lastError);
+  console.error('[VisionService/Exercise] 모든 모델 실패:', lastError);
   throw new Error('일시적으로 AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.');
 };
 
@@ -412,11 +376,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
   const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
 
-  const prompt = `식단표 OCR입니다. 요일/일자별 식단 메뉴를 줄단위로 요약 추출하세요.
-예시:
-월: 쌀밥, 제육볶음, 된장찌개
-화: 흑미밥, 닭볶음탕, 콩나물국
-텍스트만 출력하세요.`;
+  const prompt = `식단표 사진의 요일/일자별 메뉴를 줄단위 텍스트로만 요약 출력하세요. 사족 금지.`;
 
   const requestBody = {
     contents: [
@@ -434,14 +394,14 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
     ],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 500,
+      maxOutputTokens: 400,
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
-  const models = ['gemini-3.8-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
 
-  for (const model of models) {
+  for (const model of FAST_MODELS) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -450,18 +410,16 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
           endpoint,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
           },
-          10000
+          20000
         );
 
-        if (response.status === 503) {
-          console.warn(`[VisionService/MenuOCR] ${model} 503 과부하 (시도 ${attempt}/2).`);
+        if (response.status === 503 || response.status === 429) {
+          console.warn(`[VisionService/MenuOCR] ${model} 과부하/제한 (${response.status})`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -469,9 +427,9 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.warn(`[VisionService/MenuOCR] ${model} 호출 실패 [${response.status}]: ${errorText}`);
+          console.warn(`[VisionService/MenuOCR] ${model} 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(600);
+            await sleep(500);
             continue;
           }
           break;
@@ -487,7 +445,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
         lastError = err;
         console.warn(`[VisionService/MenuOCR] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(600);
+          await sleep(500);
         }
       }
     }

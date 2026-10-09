@@ -516,6 +516,7 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
                     </div>
                   )}
 
+                  {/* 눈에 잘 띄는 초록색 식단 저장하기 버튼 */}
                   <button
                     type="submit"
                     disabled={isBusy}
@@ -529,7 +530,7 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
                     ) : (
                       <>
                         <Check className="w-3.5 h-3.5" />
-                        <span>식단 기록 추가하기</span>
+                        <span>식단 저장하기</span>
                       </>
                     )}
                   </button>
