@@ -17,9 +17,9 @@ const mealTypes: { type: MealType; label: string }[] = [
 ];
 
 /**
- * AI 분석용 이미지 압축 (최대 800px)
+ * 모바일 원본 사진을 Canvas로 최대 800px, JPEG 품질 0.65(약 100~150KB 내외)로 초경량 압축
  */
-const compressImage = (file: File, maxWidth = 800, quality = 0.75): Promise<string> => {
+const compressImage = (file: File, maxWidth = 800, quality = 0.65): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = (err) => reject(err);
@@ -144,8 +144,8 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('응답 시간이 초과되었습니다(15초). 다시 시도해 주세요.'));
-        }, 15000);
+          reject(new Error('응답 시간이 초과되었습니다(8초). 다시 시도해 주세요.'));
+        }, 8000);
       });
 
       const analysisPromise = analyzeMealPhoto(imagesToAnalyze);
@@ -163,7 +163,7 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
       setFat(Number.isNaN(Number(result.fat)) ? 0 : Number(result.fat));
     } catch (error: any) {
       console.error('음식 이미지 분석 실패:', error);
-      const message = error?.message || 'AI 분석에 실패했습니다. 사진을 확인하시거나 API 키 설정을 확인해 주세요.';
+      const message = error?.message || 'AI 분석에 실패했습니다. 사진을 확인하시거나 잠시 후 다시 시도해 주세요.';
       alert(message);
     } finally {
       setIsAnalyzing(false);
@@ -180,8 +180,8 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('응답 시간이 초과되었습니다(15초). 다시 시도해 주세요.'));
-        }, 15000);
+          reject(new Error('응답 시간이 초과되었습니다(8초). 다시 시도해 주세요.'));
+        }, 8000);
       });
 
       const estimatePromise = estimateNutritionFromText(name.trim());
@@ -278,7 +278,6 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     const parsedCalories = Number(calories);
     const safeCalories = Number.isNaN(parsedCalories) ? 0 : Math.max(0, parsedCalories);
 
-    // localStorage 용량 절약을 위해 저장 시에는 160px 초경량 썸네일로 변환
     let savedThumbnail: string | undefined = undefined;
     const rawImageToSave = beforeImageUrl || afterImageUrl;
     if (rawImageToSave) {
@@ -352,10 +351,12 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
                       <input
                         type="text"
                         placeholder={
-                          isAnalyzing
+                          isCompressing
+                            ? '이미지 최적화 중...'
+                            : isAnalyzing
                             ? isComparingPhotos
-                              ? '잔반 대조 분석 중...'
-                              : 'AI가 음식 파악 중...'
+                              ? 'AI 잔반 대조 분석 중 (약 2~3초)...'
+                              : 'AI 영양 분석 중 (약 2~3초)...'
                             : isEstimatingText
                             ? 'AI 계산 중...'
                             : '음식 이름 (예: 바나나 1개, 삼겹살)'
@@ -523,7 +524,7 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
                     {isBusy ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>AI 처리 중...</span>
+                        <span>{isCompressing ? '이미지 최적화 중...' : 'AI 분석 중...'}</span>
                       </>
                     ) : (
                       <>

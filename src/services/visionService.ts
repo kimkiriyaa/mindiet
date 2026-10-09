@@ -25,6 +25,23 @@ const getApiKey = (): string => {
 };
 
 /**
+ * fetch 요청에 지정된 시간(ms) 타임아웃을 적용하는 헬퍼 함수
+ */
+const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 8000): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+/**
  * 1장 또는 2장(식사 전, 식사 후 잔반)의 사진을 받아 순 섭취량을 분석하는 고도화 함수
  */
 export const analyzeMealPhoto = async (
@@ -42,59 +59,25 @@ export const analyzeMealPhoto = async (
 
   const weeklyMenuPlan = (localStorage.getItem('weekly_menu_plan') || '').trim();
   const menuPlanContext = weeklyMenuPlan
-    ? `\n[사용자 이번 주 예정 식단표]\n${weeklyMenuPlan}\n(사진 속 식단과 일치하는 메뉴가 있다면 해당 메뉴명을 최우선 적용하여 정확도를 높여라.)`
+    ? `\n[예정식단표]: ${weeklyMenuPlan}`
     : '';
 
   const notesContext = userNotes && userNotes.trim()
-    ? `\n[사용자 메모/참고사항]: ${userNotes.trim()}`
+    ? `\n[메모]: ${userNotes.trim()}`
     : '';
 
   let prompt = '';
   if (isMultiPhoto) {
-    prompt = `당신은 최고 수준의 임상 영양사 및 식품 분석 AI입니다.
-첨부된 2장의 사진을 정밀하게 대조 분석하세요.
-- 첫 번째 이미지는 '식사 전 식판'입니다.
-- 두 번째 이미지는 '식사 후 잔반 식판'입니다.
-
-[분석 가이드라인]
-1. 두 사진을 비교 분석하여 밥, 메인 고기/단백질 반찬, 국물 및 건더기, 기타 반찬 등의 실제 순 섭취량(배식량 - 잔반량)을 계산하세요.
-2. 남긴 잔반은 제외하고 사용자가 실제로 섭취한 칼로리(kcal)와 탄수화물(carbs, g), 단백질(protein, g), 지방(fat, g)만을 정밀 산출하세요.
-3. 사족이나 인사말, 서술형 문장 없이 오직 아래 지정된 순수 JSON 규격으로만 응답하세요.${menuPlanContext}${notesContext}
-
-[응답 JSON 스키마]
-{
-  "name": "식단 대표명 (예: 제육볶음 정식 (잔반 제외 순섭취))",
-  "calories": 480,
-  "carbs": 58,
-  "protein": 26,
-  "fat": 15,
-  "description": "실제 섭취량 요약 (예: 밥 1/3 남김, 제육볶음 완식, 국물 80% 남김 등 잔반 반영)"
-}`;
+    prompt = `영양사 AI입니다. 1번: 식사 전, 2번: 식사 후 잔반.
+두 사진을 대조하여 실제 순 섭취량(배식량-잔반량) 기준 영양소를 계산하세요.
+반드시 아래 JSON 포맷으로만 응답:${menuPlanContext}${notesContext}
+{"name": "식단 대표명 (순섭취)", "calories": 480, "carbs": 58, "protein": 26, "fat": 15, "description": "섭취 요약"}`;
   } else {
-    prompt = `당신은 최고 수준의 임상 영양사 및 식품 분석 AI입니다.
-제공된 음식 사진(식판, 한 접시 등)을 세밀하게 분석하세요.
-
-[분석 가이드라인]
-1. 식판 칸별 메뉴 파악:
-   - 밥(쌀밥/잡곡밥 여부 및 담긴 공기량)
-   - 메인 단백질(육류/생선/두부/달걀 등의 조리 방식 및 양)
-   - 국류(건더기 종류 및 염분/국물 섭취량)
-   - 반찬류(나물, 김치, 튀김, 샐러드 드레싱 등)
-2. 실제 섭취한 예상 순수 총 칼로리(kcal)와 탄수화물(carbs, g), 단백질(protein, g), 지방(fat, g)을 정밀 계산하세요.
-3. 사족이나 인사말, 서술형 문장, 마크다운 설명 없이 오직 순수 JSON 형식만 반환하세요.${menuPlanContext}${notesContext}
-
-[응답 JSON 스키마]
-{
-  "name": "식단 대표명 (예: 제육볶음과 된장찌개 정식)",
-  "calories": 550,
-  "carbs": 65,
-  "protein": 27,
-  "fat": 18,
-  "description": "섭취 메뉴 구성 요약 (예: 흑미밥 200g, 제육볶음 120g, 배추된장국, 깍두기, 시금치나물)"
-}`;
+    prompt = `영양사 AI입니다. 사진 속 식단의 1인분 예상 칼로리와 영양소를 계산하세요.
+반드시 아래 JSON 포맷으로만 응답:${menuPlanContext}${notesContext}
+{"name": "식단 대표명", "calories": 550, "carbs": 65, "protein": 27, "fat": 18, "description": "메뉴 구성"}`;
   }
 
-  // Gemini parts 구성
   const parts: any[] = [{ text: prompt }];
 
   imageList.slice(0, 2).forEach((img) => {
@@ -118,7 +101,8 @@ export const analyzeMealPhoto = async (
       },
     ],
     generationConfig: {
-      temperature: 0.2,
+      temperature: 0.1,
+      maxOutputTokens: 300,
       response_mime_type: 'application/json',
     },
   };
@@ -131,18 +115,22 @@ export const analyzeMealPhoto = async (
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        const response = await fetchWithTimeout(
+          endpoint,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
           },
-          body: JSON.stringify(requestBody),
-        });
+          8000
+        );
 
         if (response.status === 503) {
-          console.warn(`[VisionService] ${model} 503 과부하 발생 (시도 ${attempt}/2).`);
+          console.warn(`[VisionService] ${model} 503 과부하 (시도 ${attempt}/2).`);
           if (attempt < 2) {
-            await sleep(1500);
+            await sleep(600);
             continue;
           }
           break;
@@ -152,7 +140,7 @@ export const analyzeMealPhoto = async (
           const errorText = await response.text();
           console.warn(`[VisionService] ${model} 호출 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(1500);
+            await sleep(600);
             continue;
           }
           break;
@@ -185,14 +173,14 @@ export const analyzeMealPhoto = async (
         lastError = err;
         console.warn(`[VisionService] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(1500);
+          await sleep(600);
         }
       }
     }
   }
 
   console.error('[VisionService] 모든 모델 및 재시도 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡하거나 네트워크가 불안정합니다. 잠시 후 다시 시도해 주세요.');
+  throw new Error('일시적으로 AI 서버가 혼잡하거나 지연이 발생했습니다. 잠시 후 다시 시도해 주세요.');
 };
 
 /**
@@ -212,19 +200,9 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
     throw new Error('음식명을 입력해 주세요.');
   }
 
-  const prompt = `당신은 전문 임상 영양사 AI입니다.
-입력된 음식 또는 식단: "${trimmedName}"
-위 음식의 일반적인 1회 섭취량(또는 지정된 분량)을 기준으로 예상 영양성분과 칼로리를 정밀 추정하세요.
-인사말이나 사족 없이 오직 순수 JSON 포맷으로만 응답하세요.
-
-[응답 JSON 스키마]
-{
-  "name": "${trimmedName}",
-  "calories": 250,
-  "carbs": 30,
-  "protein": 15,
-  "fat": 5
-}`;
+  const prompt = `영양사 AI입니다. "${trimmedName}" 음식의 일반적인 1회 섭취량 기준 영양소를 계산하세요.
+반드시 아래 JSON 포맷으로만 응답:
+{"name": "${trimmedName}", "calories": 250, "carbs": 30, "protein": 15, "fat": 5}`;
 
   const requestBody = {
     contents: [
@@ -233,7 +211,8 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
       },
     ],
     generationConfig: {
-      temperature: 0.2,
+      temperature: 0.1,
+      maxOutputTokens: 200,
       response_mime_type: 'application/json',
     },
   };
@@ -246,18 +225,22 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        const response = await fetchWithTimeout(
+          endpoint,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
           },
-          body: JSON.stringify(requestBody),
-        });
+          8000
+        );
 
         if (response.status === 503) {
-          console.warn(`[VisionService/Text] ${model} 503 과부하 발생 (시도 ${attempt}/2).`);
+          console.warn(`[VisionService/Text] ${model} 503 과부하 (시도 ${attempt}/2).`);
           if (attempt < 2) {
-            await sleep(1500);
+            await sleep(600);
             continue;
           }
           break;
@@ -267,7 +250,7 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
           const errorText = await response.text();
           console.warn(`[VisionService/Text] ${model} 호출 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(1500);
+            await sleep(600);
             continue;
           }
           break;
@@ -299,14 +282,14 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
         lastError = err;
         console.warn(`[VisionService/Text] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(1500);
+          await sleep(600);
         }
       }
     }
   }
 
   console.error('[VisionService/Text] 모든 모델 및 재시도 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡하거나 네트워크가 불안정합니다. 잠시 후 다시 시도해 주세요.');
+  throw new Error('일시적으로 AI 서버가 혼잡하거나 지연이 발생했습니다. 잠시 후 다시 시도해 주세요.');
 };
 
 /**
@@ -320,19 +303,11 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
   const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
 
-  const prompt = `당신은 문서 및 식단표 OCR 분석 전문가입니다.
-제공된 이미지에서 주간 식단표(구내식당, 급식표 등)의 요일/일자별 메뉴 텍스트를 정확하게 읽어내세요.
-
-[작성 형식]
-요일(또는 날짜)별로 한 줄씩 간결하고 명확하게 정리해 주세요.
+  const prompt = `식단표 OCR입니다. 요일/일자별 식단 메뉴를 줄단위로 요약 추출하세요.
 예시:
-월: 쌀밥, 제육볶음, 된장찌개, 배추김치
-화: 흑미밥, 닭볶음탕, 콩나물국, 깍두기
-수: 카레라이스, 팽이버섯장국, 치킨텐더, 단무지
-목: 현미밥, 소불고기, 미역국, 김치전
-금: 김치볶음밥, 계란파국, 군만두, 요구르트
-
-설명이나 인사말 없이 위 형식의 텍스트만 출력하세요.`;
+월: 쌀밥, 제육볶음, 된장찌개
+화: 흑미밥, 닭볶음탕, 콩나물국
+텍스트만 출력하세요.`;
 
   const requestBody = {
     contents: [
@@ -350,6 +325,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
     ],
     generationConfig: {
       temperature: 0.1,
+      maxOutputTokens: 500,
     },
   };
 
@@ -361,18 +337,22 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        const response = await fetchWithTimeout(
+          endpoint,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
           },
-          body: JSON.stringify(requestBody),
-        });
+          10000
+        );
 
         if (response.status === 503) {
-          console.warn(`[VisionService/MenuOCR] ${model} 503 과부하 발생 (시도 ${attempt}/2).`);
+          console.warn(`[VisionService/MenuOCR] ${model} 503 과부하 (시도 ${attempt}/2).`);
           if (attempt < 2) {
-            await sleep(1500);
+            await sleep(600);
             continue;
           }
           break;
@@ -382,7 +362,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
           const errorText = await response.text();
           console.warn(`[VisionService/MenuOCR] ${model} 호출 실패 [${response.status}]: ${errorText}`);
           if (attempt < 2) {
-            await sleep(1500);
+            await sleep(600);
             continue;
           }
           break;
@@ -398,7 +378,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
         lastError = err;
         console.warn(`[VisionService/MenuOCR] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
         if (attempt < 2) {
-          await sleep(1500);
+          await sleep(600);
         }
       }
     }
