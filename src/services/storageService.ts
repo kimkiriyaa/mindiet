@@ -191,4 +191,69 @@ export const loadDailyLog = (date: string, userId?: string): DailyLog | null => 
       if (parsedLegacy && typeof parsedLegacy === 'object') {
         const migrated: DailyLog = {
           date: parsedLegacy.date || date,
-          userId:
+          userId: parsedLegacy.userId || userId,
+          targetCalories: parsedLegacy.targetCalories ?? DEFAULT_TARGET_CALORIES,
+          steps: parsedLegacy.steps ?? 0,
+          meals: Array.isArray(parsedLegacy.meals) ? parsedLegacy.meals : [],
+          waterIntake: parsedLegacy.waterIntake ?? parsedLegacy.water ?? 0,
+          weight: parsedLegacy.weight,
+          exerciseCalories: parsedLegacy.exerciseCalories ?? 0,
+          exerciseNotes: parsedLegacy.exerciseNotes || '',
+        };
+        localStorage.setItem(key, JSON.stringify(migrated));
+        return migrated;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load daily log from localStorage:', e);
+  }
+  return null;
+};
+
+export const saveDailyLog = (log: DailyLog, userId?: string): void => {
+  const key = getLogStorageKey(log.date, userId || log.userId);
+  try {
+    localStorage.setItem(key, JSON.stringify(log));
+  } catch (e) {
+    console.error('Failed to save daily log to localStorage:', e);
+  }
+};
+
+export interface WeightLogPoint {
+  date: string;
+  weight?: number;
+}
+
+export const getRecentWeightLogs = (
+  baseDate: string,
+  days = 14,
+  userId?: string
+): WeightLogPoint[] => {
+  const results: WeightLogPoint[] = [];
+  const base = new Date(baseDate);
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(base);
+    d.setDate(base.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const log = loadDailyLog(dateStr, userId);
+    results.push({
+      date: dateStr,
+      weight: log?.weight,
+    });
+  }
+
+  return results;
+};
+
+export const syncToGoogleSheet = async (log: DailyLog): Promise<boolean> => {
+  if (!GOOGLE_SHEET_SCRIPT_URL) {
+    return false;
+  }
+
+  try {
+    const payload = {
+      action: 'saveLog',
+      date: log.date,
+      userId: log.userId,
+      targetCalories: log.targetCalories,
