@@ -372,4 +372,85 @@ export const App: React.FC = () => {
               min="30"
               max="250"
               value={weightInput}
-              onChange={(e) => setWeightInput(e.target.value
+              onChange={(e) => setWeightInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveWeight();
+                }
+              }}
+              placeholder={(profile.weight || 65).toString()}
+              className="w-16 px-2 py-1.5 text-right font-bold text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-indigo-600 placeholder:text-slate-300"
+            />
+            <span className="text-xs font-semibold text-slate-500 mr-1">kg</span>
+            <button
+              type="button"
+              onClick={handleSaveWeight}
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-xs active:scale-95 ${
+                isWeightSaved
+                  ? 'bg-emerald-500 text-white shadow-emerald-200'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+              }`}
+            >
+              {isWeightSaved ? (
+                <>
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>저장됨</span>
+                </>
+              ) : (
+                <span>저장</span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* 탄단지 영양 요약 카드 */}
+        <CalorieSummaryCard
+          targetCalories={targetCalories}
+          totals={nutritionTotals}
+        />
+
+        {/* 식단 기록 섹션 */}
+        <MealSection
+          meals={dailyLog.meals}
+          onAddMeal={handleAddMeal}
+          onDeleteMeal={handleDeleteMeal}
+        />
+
+        {/* 활동 및 걸음 수 + 운동 자율 입력 섹션 */}
+        <ActivitySection
+          steps={dailyLog.steps || 0}
+          burnedStepCalories={burnedStepCalories}
+          exerciseCalories={exerciseCalories}
+          exerciseNotes={dailyLog.exerciseNotes || ''}
+          onSaveSteps={handleSaveSteps}
+          onSaveExercise={handleSaveExercise}
+          onEstimateExercise={handleEstimateExercise}
+        />
+
+        {/* 수분 섭취 카드 */}
+        <WaterTrackerCard
+          waterIntake={dailyLog.waterIntake || 0}
+          targetWater={profile.targetWater || 2000}
+          onAddWater={handleAddWater}
+        />
+
+        {/* 최하단 최근 14일 몸무게 추이 그래프 */}
+        <WeightTrendCard
+          logs={recentWeightLogs}
+          currentWeight={dailyLog.weight ?? profile.weight}
+        />
+      </main>
+
+      {/* 신체 정보 및 설정 모달 */}
+      <ProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        profile={profile}
+        onSaveProfile={handleSaveProfile}
+      />
+    </div>
+  );
+};
+
+export default App;
