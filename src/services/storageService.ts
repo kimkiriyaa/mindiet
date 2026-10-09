@@ -108,3 +108,85 @@ export const registerUserLocal = (
     password = param1.password || '';
     name = param1.userName || param1.name || '';
   } else {
+    userId = param1 || '';
+    password = param2 || '';
+    name = param3 || '';
+  }
+
+  const trimmedId = userId.trim();
+  const trimmedName = name.trim();
+  const trimmedPassword = password.trim();
+
+  if (!trimmedId || !trimmedPassword || !trimmedName) {
+    return { success: false, message: '모든 필드를 입력해 주세요.' };
+  }
+
+  const users = getRegisteredUsers();
+  const exists = users.some(
+    (u) => u.userId.toLowerCase() === trimmedId.toLowerCase()
+  );
+
+  if (exists) {
+    return { success: false, message: '이미 존재하는 아이디입니다.' };
+  }
+
+  const newUser: AuthUser = {
+    userId: trimmedId,
+    userName: trimmedName,
+    password: trimmedPassword,
+    createdAt: new Date().toISOString(),
+  };
+
+  saveRegisteredUsers([...users, newUser]);
+  return {
+    success: true,
+    message: '회원가입이 완료되었습니다.',
+    user: {
+      userId: trimmedId,
+      name: trimmedName,
+      userName: trimmedName,
+    },
+  };
+};
+
+export const loginUserLocal = (
+  userId: string,
+  password: string
+): LocalAuthResult => {
+  const trimmedId = userId.trim();
+  const trimmedPassword = password.trim();
+
+  const users = getRegisteredUsers();
+  const found = users.find(
+    (u) =>
+      u.userId.toLowerCase() === trimmedId.toLowerCase() &&
+      u.password === trimmedPassword
+  );
+
+  if (!found) {
+    return { success: false, message: '아이디 또는 비밀번호가 일치하지 않습니다.' };
+  }
+
+  return {
+    success: true,
+    user: {
+      userId: found.userId,
+      name: found.userName,
+      userName: found.userName,
+    },
+  };
+};
+
+export const syncAuthToGoogleSheet = async (
+  mode: 'register' | 'login',
+  param2: string | { userId: string; password?: string; userName?: string; name?: string },
+  password?: string,
+  name?: string
+): Promise<void> => {
+  if (!GOOGLE_SHEET_SCRIPT_URL) return;
+
+  let targetUserId = '';
+  let targetPassword = '';
+  let targetName = '';
+
+  if (typeof param2 === 'object
