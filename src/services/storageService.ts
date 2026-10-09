@@ -257,3 +257,25 @@ export const syncToGoogleSheet = async (log: DailyLog): Promise<boolean> => {
       date: log.date,
       userId: log.userId,
       targetCalories: log.targetCalories,
+      steps: log.steps,
+      waterIntake: log.waterIntake,
+      weight: log.weight,
+      exerciseCalories: log.exerciseCalories,
+      exerciseNotes: log.exerciseNotes,
+      meals: log.meals,
+    };
+
+    const response = await fetch(GOOGLE_SHEET_SCRIPT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    return response.ok;
+  } catch (e) {
+    console.warn('Google Sheet sync skipped or failed:', e);
+    return false;
+  }
+};

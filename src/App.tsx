@@ -10,8 +10,9 @@ import { MealSection } from './components/meal/MealSection';
 import { ActivitySection } from './components/activity/ActivitySection';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { UserSession, UserProfile, DailyLog, MealItem } from './types/diet';
-import { loadUserProfile, saveUserProfile } from './services/profileService';
 import {
+  loadUserProfile,
+  saveUserProfile,
   loadDailyLog,
   saveDailyLog,
   getRecentWeightLogs,
@@ -22,6 +23,17 @@ import {
 import { calculateStepCalories, safeVal } from './utils/nutritionCalc';
 import { estimateExerciseCalories } from './services/visionService';
 
+const DEFAULT_PROFILE: UserProfile = {
+  birthDate: '1995-01-01',
+  gender: 'male',
+  height: 175,
+  weight: 70,
+  activityLevel: 'moderate',
+  targetWeight: 65,
+  targetCalories: 2000,
+  targetWater: 2000,
+};
+
 export const App: React.FC = () => {
   const [session, setSession] = useState<UserSession | null>(() => getSavedSession());
 
@@ -29,24 +41,13 @@ export const App: React.FC = () => {
     return new Date().toISOString().split('T')[0];
   });
 
+  const activeUserId = session?.userId || 'default';
+
   const [profile, setProfile] = useState<UserProfile>(() => {
-    return (
-      loadUserProfile() || {
-        birthDate: '1995-01-01',
-        gender: 'male',
-        height: 175,
-        weight: 70,
-        activityLevel: 'moderate',
-        targetWeight: 65,
-        targetCalories: 2000,
-        targetWater: 2000,
-      }
-    );
+    return loadUserProfile(activeUserId) || DEFAULT_PROFILE;
   });
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-
-  const activeUserId = session?.userId || 'default';
 
   const [dailyLog, setDailyLog] = useState<DailyLog>(() => {
     const loaded = loadDailyLog(currentDate, activeUserId);
@@ -76,6 +77,16 @@ export const App: React.FC = () => {
   const [recentWeightLogs, setRecentWeightLogs] = useState(() =>
     getRecentWeightLogs(currentDate, 14, activeUserId)
   );
+
+  // 세션 변경 시 해당 유저의 프로필 로드
+  useEffect(() => {
+    const loadedProfile = loadUserProfile(activeUserId);
+    if (loadedProfile) {
+      setProfile(loadedProfile);
+    } else {
+      setProfile(DEFAULT_PROFILE);
+    }
+  }, [activeUserId]);
 
   useEffect(() => {
     if (!session) return;
@@ -172,7 +183,7 @@ export const App: React.FC = () => {
       targetWater: Math.max(0, safeVal(newProfile.targetWater, 2000)),
     };
     setProfile(sanitizedProfile);
-    saveUserProfile(sanitizedProfile);
+    saveUserProfile(sanitizedProfile, activeUserId);
     if (sanitizedProfile.targetCalories && sanitizedProfile.targetCalories !== dailyLog.targetCalories) {
       handleUpdateLog({
         ...dailyLog,
@@ -201,7 +212,7 @@ export const App: React.FC = () => {
       weight: validWeight,
     };
     setProfile(updatedProfile);
-    saveUserProfile(updatedProfile);
+    saveUserProfile(updatedProfile, activeUserId);
 
     setIsWeightSaved(true);
     setTimeout(() => {
