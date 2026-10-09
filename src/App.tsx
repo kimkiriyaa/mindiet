@@ -11,7 +11,7 @@ import { ActivitySection } from './components/activity/ActivitySection';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { UserSession, UserProfile, DailyLog, MealItem } from './types/diet';
 import { loadUserProfile, saveUserProfile } from './services/profileService';
-import { loadDailyLog, saveDailyLog, getRecentWeightLogs } from './services/storageService';
+import { loadDailyLog, saveDailyLog, getRecentWeightLogs, syncToGoogleSheet } from './services/storageService';
 import { calculateStepCalories, safeVal } from './utils/nutritionCalc';
 import { estimateExerciseCalories } from './services/visionService';
 
@@ -125,6 +125,7 @@ export const App: React.FC = () => {
       };
       setDailyLog(sanitizedLog);
       saveDailyLog(sanitizedLog);
+      syncToGoogleSheet(sanitizedLog);
       setRecentWeightLogs(getRecentWeightLogs(newLog.date, 14));
     },
     []

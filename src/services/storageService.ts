@@ -4,6 +4,9 @@ const STORAGE_KEY_PREFIX = 'min_diet_log_';
 const LEGACY_KEY_PREFIX = 'inout_diet_log_';
 const DEFAULT_TARGET_CALORIES = 2000;
 
+export const GOOGLE_SHEET_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbxpmy9pg2KByZcerul2YgQJqVnwB5Z4_gri2UNJSvAQsK12kqFRARyNPD4NewbvMUAV/exec';
+
 export const getEmptyDailyLog = (date: string): DailyLog => ({
   date,
   targetCalories: DEFAULT_TARGET_CALORIES,
@@ -96,4 +99,45 @@ export const getRecentWeightLogs = (baseDateStr: string, days = 14): { date: str
   }
 
   return result;
+};
+
+/**
+ * 구글 스프레드시트 Apps Script 웹앱으로 일일 데이터 비동기 백업
+ * 모바일 CORS 리디렉션 이슈 방지를 위해 mode: 'no-cors' 적용
+ */
+export const syncToGoogleSheet = async (dailyLog: DailyLog): Promise<void> => {
+  if (!GOOGLE_SHEET_SCRIPT_URL) return;
+
+  const payload = {
+    date: dailyLog.date,
+    weight: dailyLog.weight,
+    waterIntake: dailyLog.waterIntake,
+    steps: dailyLog.steps,
+    exerciseCalories: dailyLog.exerciseCalories,
+    exerciseNotes: dailyLog.exerciseNotes,
+    targetCalories: dailyLog.targetCalories,
+    meals: (dailyLog.meals || []).map((m) => ({
+      id: m.id,
+      type: m.type,
+      name: m.name,
+      calories: m.calories,
+      carbs: m.carbs,
+      protein: m.protein,
+      fat: m.fat,
+    })),
+  };
+
+  try {
+    await fetch(GOOGLE_SHEET_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    // 백그라운드 전송 실패 시에도 앱 정상 동작을 위해 silent catch
+    console.warn('[StorageService] Google Sheet 동기화 지연/실패 (로컬 저장은 완료됨):', error);
+  }
 };
