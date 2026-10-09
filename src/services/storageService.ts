@@ -181,3 +181,136 @@ export const syncAuthToGoogleSheet = async (
   mode: 'register' | 'login',
   param2: string | { userId: string; password?: string; userName?: string; name?: string },
   password?: string,
+  name?: string
+): Promise<void> => {
+  if (!GOOGLE_SHEET_SCRIPT_URL) return;
+
+  let targetUserId = '';
+  let targetPassword = '';
+  let targetName = '';
+
+  if (typeof param2 === 'object' && param2 !== null) {
+    targetUserId = param2.userId || '';
+    targetPassword = param2.password || '';
+    targetName = param2.userName || param2.name || '';
+  } else {
+    targetUserId = param2 || '';
+    targetPassword = password || '';
+    targetName = name || '';
+  }
+
+  try {
+    const payload = {
+      action: 'auth',
+      mode,
+      userId: targetUserId,
+      password: targetPassword,
+      userName: targetName,
+      timestamp: new Date().toISOString(),
+    };
+
+    await fetch(GOOGLE_SHEET_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.error('Failed to sync auth with Google Sheet:', error);
+  }
+};
+
+export const getSavedSession = (): UserSession | null => {
+  try {
+    const raw = localStorage.getItem(CURRENT_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as UserSession;
+  } catch {
+    return null;
+  }
+};
+
+export const setSavedSession = (session: UserSession | null): void => {
+  try {
+    if (session) {
+      localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(session));
+    } else {
+      localStorage.removeItem(CURRENT_SESSION_KEY);
+    }
+  } catch (e) {
+    console.error('Failed to save session to localStorage:', e);
+  }
+};
+
+export const loadDailyLog = (date: string, userId?: string): DailyLog | null => {
+  const userKey = getLogStorageKey(date, userId);
+  try {
+    const stored = localStorage.getItem(userKey);
+    if (stored) {
+      return JSON.parse(stored) as DailyLog;
+    }
+
+    const legacyKey = `${LEGACY_STORAGE_KEY_PREFIX}${date}`;
+    const legacyData = localStorage.getItem(legacyKey);
+    if (legacyData) {
+      const parsed = JSON.parse(legacyData) as DailyLog;
+      if (parsed) {
+        localStorage.setItem(userKey, JSON.stringify(parsed));
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load daily log from localStorage:', e);
+  }
+  return null;
+};
+
+export const saveDailyLog = (log: DailyLog, userId?: string): void => {
+  const userKey = getLogStorageKey(log.date, userId);
+  try {
+    localStorage.setItem(userKey, JSON.stringify(log));
+  } catch (e) {
+    console.error('Failed to save daily log to localStorage:', e);
+  }
+};
+
+export const getRecentWeightLogs = (
+  endDate: string,
+  days: number = 14,
+  userId?: string
+): { date: string; weight?: number }[] => {
+  const results: { date: string; weight?: number }[] = [];
+  const end = new Date(endDate);
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const log = loadDailyLog(dateStr, userId);
+    results.push({
+      date: dateStr,
+      weight: log?.weight,
+    });
+  }
+
+  return results;
+};
+
+export const syncToGoogleSheet = async (log: DailyLog): Promise<void> => {
+  if (!GOOGLE_SHEET_SCRIPT_URL) return;
+
+  try {
+    await fetch(GOOGLE_SHEET_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(log),
+    });
+  } catch (error) {
+    console.error('Failed to sync to Google Sheet:', error);
+  }
+};
