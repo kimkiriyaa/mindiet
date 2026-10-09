@@ -12,8 +12,6 @@ export interface ExerciseAnalysisResult {
   description: string;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const getApiKey = (): string => {
   const envKey = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY
     ? String((import.meta as any).env.VITE_GEMINI_API_KEY).trim()
@@ -30,427 +28,49 @@ const getApiKey = (): string => {
 };
 
 /**
- * fetch 요청에 지정된 시간(ms) 타임아웃을 적용하는 헬퍼 함수 (기본 20초)
+ * 1. 로컬 영양 데이터베이스 (대표 다소비 식품 70종)
+ * 서버 통신 없이 0ms 즉시 반환
  */
-const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 20000): Promise<Response> => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
+const COMMON_FOODS: Record<string, { calories: number; carbs: number; protein: number; fat: number; name: string }> = {
+  // 밥 및 탄수화물
+  '밥': { calories: 300, carbs: 65, protein: 5, fat: 1, name: '공기밥(백미 200g)' },
+  '공기밥': { calories: 300, carbs: 65, protein: 5, fat: 1, name: '공기밥(백미 200g)' },
+  '백미': { calories: 300, carbs: 65, protein: 5, fat: 1, name: '공기밥(백미 200g)' },
+  '현미밥': { calories: 280, carbs: 60, protein: 6, fat: 1, name: '현미밥 1공기' },
+  '잡곡밥': { calories: 285, carbs: 62, protein: 6, fat: 1, name: '잡곡밥 1공기' },
+  '볶음밥': { calories: 520, carbs: 70, protein: 12, fat: 20, name: '볶음밥 1인분' },
+  '김치볶음밥': { calories: 480, carbs: 68, protein: 11, fat: 16, name: '김치볶음밥 1인분' },
+  '고구마': { calories: 140, carbs: 32, protein: 2, fat: 0, name: '찐고구마 1개(120g)' },
+  '감자': { calories: 110, carbs: 26, protein: 2, fat: 0, name: '삶은 감자 1개' },
+  '식빵': { calories: 150, carbs: 28, protein: 5, fat: 2, name: '식빵 2쪽' },
+  '베이글': { calories: 280, carbs: 56, protein: 11, fat: 2, name: '플레인 베이글 1개' },
+  '오트밀': { calories: 150, carbs: 27, protein: 5, fat: 3, name: '오트밀 1그릇(40g)' },
 
-// 안정적이고 빠른 순서의 모델 체인
-const FAST_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  // 단백질 및 육류
+  '닭가슴살': { calories: 130, carbs: 0, protein: 26, fat: 2, name: '닭가슴살 100g' },
+  '삶은계란': { calories: 75, carbs: 1, protein: 6, fat: 5, name: '삶은 달걀 1개' },
+  '계란': { calories: 75, carbs: 1, protein: 6, fat: 5, name: '달걀 1개' },
+  '달걀': { calories: 75, carbs: 1, protein: 6, fat: 5, name: '달걀 1개' },
+  '계란후라이': { calories: 100, carbs: 1, protein: 6, fat: 8, name: '계란후라이 1개' },
+  '두부': { calories: 85, carbs: 2, protein: 9, fat: 4, name: '두부 반모(100g)' },
+  '삼겹살': { calories: 550, carbs: 0, protein: 25, fat: 48, name: '삼겹살 200g' },
+  '목살': { calories: 420, carbs: 0, protein: 35, fat: 30, name: '돼지 목살 200g' },
+  '소고기': { calories: 350, carbs: 0, protein: 38, fat: 20, name: '소고기 등심 150g' },
+  '제육볶음': { calories: 480, carbs: 18, protein: 28, fat: 32, name: '제육볶음 1인분' },
+  '불고기': { calories: 380, carbs: 20, protein: 28, fat: 20, name: '소불고기 1인분' },
+  '돈까스': { calories: 650, carbs: 50, protein: 28, fat: 38, name: '돈까스 1인분' },
+  '치킨': { calories: 320, carbs: 10, protein: 25, fat: 20, name: '후라이드 치킨 1조각' },
+  '연어': { calories: 220, carbs: 0, protein: 22, fat: 14, name: '연어 구이 1토막(120g)' },
+  '고등어': { calories: 250, carbs: 0, protein: 20, fat: 18, name: '고등어 구이 1토막' },
 
-/**
- * 1장 또는 2장(식사 전, 식사 후 잔반)의 사진을 받아 순 섭취량을 초고속 분석하는 함수
- */
-export const analyzeMealPhoto = async (
-  images: string | string[],
-  userNotes?: string
-): Promise<FoodVisionAnalysisResult> => {
-  const apiKey = getApiKey();
-  const imageList = Array.isArray(images) ? images.filter(Boolean) : [images].filter(Boolean);
+  // 다이어트 / 보충식
+  '프로틴': { calories: 120, carbs: 3, protein: 24, fat: 1, name: '단백질 쉐이크 1회' },
+  '단백질쉐이크': { calories: 120, carbs: 3, protein: 24, fat: 1, name: '단백질 쉐이크 1회' },
+  '그릭요거트': { calories: 100, carbs: 4, protein: 10, fat: 5, name: '그릭요거트 100g' },
+  '요거트': { calories: 90, carbs: 12, protein: 4, fat: 3, name: '플레인 요거트 1개' },
+  '샐러드': { calories: 180, carbs: 15, protein: 5, fat: 11, name: '기본 샐러드 1그릇(드레싱 포함)' },
+  '닭가슴살샐러드': { calories: 280, carbs: 15, protein: 28, fat: 12, name: '닭가슴살 샐러드 1그릇' },
+  '서브웨이': { calories: 380, carbs: 45, protein: 25, fat: 10, name: '서브웨이 샌드위치 15cm' },
 
-  if (imageList.length === 0) {
-    throw new Error('분석할 음식 이미지가 없습니다.');
-  }
-
-  const isMultiPhoto = imageList.length >= 2;
-
-  const weeklyMenuPlan = (localStorage.getItem('weekly_menu_plan') || '').trim();
-  const menuPlanContext = weeklyMenuPlan ? ` 식단표 참고:${weeklyMenuPlan}` : '';
-  const notesContext = userNotes && userNotes.trim() ? ` 메모:${userNotes.trim()}` : '';
-
-  const prompt = isMultiPhoto
-    ? `1번은 식사 전, 2번은 식사 후 잔반 사진입니다. 잔반을 뺀 순 섭취량 기준 영양소를 JSON으로만 응답: {"name": string, "calories": number, "carbs": number, "protein": number, "fat": number, "description": string}${menuPlanContext}${notesContext}`
-    : `사진 속 음식의 1인분 예상 칼로리와 영양소를 JSON으로만 응답: {"name": string, "calories": number, "carbs": number, "protein": number, "fat": number, "description": string}${menuPlanContext}${notesContext}`;
-
-  const parts: any[] = [{ text: prompt }];
-
-  imageList.slice(0, 2).forEach((img) => {
-    const splitArr = img.split(',');
-    const rawBase64 = splitArr.length > 1 ? splitArr[1].trim() : splitArr[0].trim();
-    const mimeMatch = img.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
-    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-
-    parts.push({
-      inline_data: {
-        mime_type: mimeType,
-        data: rawBase64,
-      },
-    });
-  });
-
-  const requestBody = {
-    contents: [{ parts }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 250,
-      responseMimeType: 'application/json',
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  };
-
-  let lastError: any = null;
-
-  for (const model of FAST_MODELS) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-        const response = await fetchWithTimeout(
-          endpoint,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-          },
-          20000
-        );
-
-        if (response.status === 503 || response.status === 429) {
-          console.warn(`[VisionService] ${model} 과부하/제한 (${response.status}, 시도 ${attempt}/2)`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.warn(`[VisionService] ${model} 실패 [${response.status}]: ${errorText}`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        const data = await response.json();
-        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!candidateText) {
-          throw new Error('분석 결과를 전달받지 못했습니다.');
-        }
-
-        const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(cleanedText);
-
-        const parsedCalories = Number(parsed.calories);
-        const parsedCarbs = Number(parsed.carbs);
-        const parsedProtein = Number(parsed.protein);
-        const parsedFat = Number(parsed.fat);
-
-        return {
-          name: String(parsed.name || '알 수 없는 식단').trim(),
-          calories: Number.isFinite(parsedCalories) ? Math.max(0, Math.round(parsedCalories)) : 0,
-          carbs: Number.isFinite(parsedCarbs) ? Math.max(0, Math.round(parsedCarbs)) : 0,
-          protein: Number.isFinite(parsedProtein) ? Math.max(0, Math.round(parsedProtein)) : 0,
-          fat: Number.isFinite(parsedFat) ? Math.max(0, Math.round(parsedFat)) : 0,
-          description: parsed.description ? String(parsed.description).trim() : undefined,
-        };
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[VisionService] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
-        if (attempt < 2) {
-          await sleep(500);
-        }
-      }
-    }
-  }
-
-  console.error('[VisionService] 모든 모델 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡하거나 지연이 발생했습니다. 잠시 후 다시 시도해 주세요.');
-};
-
-/**
- * 하위 호환성을 유지하기 위한 기존 단일 이미지 분석 래퍼 함수
- */
-export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<FoodVisionAnalysisResult> => {
-  return analyzeMealPhoto(base64ImageWithHeader);
-};
-
-/**
- * 텍스트 음식명을 입력받아 칼로리와 영양성분을 초고속 추정하는 함수
- */
-export const estimateNutritionFromText = async (foodName: string): Promise<FoodVisionAnalysisResult> => {
-  const apiKey = getApiKey();
-  const trimmedName = foodName.trim();
-  if (!trimmedName) {
-    throw new Error('음식명을 입력해 주세요.');
-  }
-
-  const prompt = `음식 "${trimmedName}" 1회 섭취량 영양소를 JSON으로만 반환: {"name": "${trimmedName}", "calories": number, "carbs": number, "protein": number, "fat": number}`;
-
-  const requestBody = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 200,
-      responseMimeType: 'application/json',
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  };
-
-  let lastError: any = null;
-
-  for (const model of FAST_MODELS) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-        const response = await fetchWithTimeout(
-          endpoint,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-          },
-          20000
-        );
-
-        if (response.status === 503 || response.status === 429) {
-          console.warn(`[VisionService/Text] ${model} 과부하/제한 (${response.status})`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.warn(`[VisionService/Text] ${model} 실패 [${response.status}]: ${errorText}`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        const data = await response.json();
-        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!candidateText) {
-          throw new Error('영양소 추정 결과를 전달받지 못했습니다.');
-        }
-
-        const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(cleanedText);
-
-        const parsedCalories = Number(parsed.calories);
-        const parsedCarbs = Number(parsed.carbs);
-        const parsedProtein = Number(parsed.protein);
-        const parsedFat = Number(parsed.fat);
-
-        return {
-          name: String(parsed.name || trimmedName).trim(),
-          calories: Number.isFinite(parsedCalories) ? Math.max(0, Math.round(parsedCalories)) : 0,
-          carbs: Number.isFinite(parsedCarbs) ? Math.max(0, Math.round(parsedCarbs)) : 0,
-          protein: Number.isFinite(parsedProtein) ? Math.max(0, Math.round(parsedProtein)) : 0,
-          fat: Number.isFinite(parsedFat) ? Math.max(0, Math.round(parsedFat)) : 0,
-        };
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[VisionService/Text] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
-        if (attempt < 2) {
-          await sleep(500);
-        }
-      }
-    }
-  }
-
-  console.error('[VisionService/Text] 모든 모델 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡하거나 지연이 발생했습니다. 잠시 후 다시 시도해 주세요.');
-};
-
-/**
- * 사용자 체중과 운동 내역 텍스트를 기반으로 예상 소모 칼로리를 초고속 추정하는 함수
- */
-export const estimateExerciseCalories = async (
-  exerciseText: string,
-  currentWeight: number = 65
-): Promise<ExerciseAnalysisResult> => {
-  const apiKey = getApiKey();
-  const trimmedText = exerciseText.trim();
-  if (!trimmedText) {
-    throw new Error('운동 내용을 입력해 주세요.');
-  }
-
-  const safeWeight = currentWeight > 0 ? currentWeight : 65;
-  const prompt = `체중 ${safeWeight}kg 기준 "${trimmedText}" 운동 소모 칼로리를 JSON으로만 반환: {"calories": number, "description": string}`;
-
-  const requestBody = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 200,
-      responseMimeType: 'application/json',
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  };
-
-  let lastError: any = null;
-
-  for (const model of FAST_MODELS) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-        const response = await fetchWithTimeout(
-          endpoint,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-          },
-          20000
-        );
-
-        if (response.status === 503 || response.status === 429) {
-          console.warn(`[VisionService/Exercise] ${model} 과부하/제한 (${response.status})`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.warn(`[VisionService/Exercise] ${model} 실패 [${response.status}]: ${errorText}`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        const data = await response.json();
-        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!candidateText) {
-          throw new Error('운동 분석 결과를 전달받지 못했습니다.');
-        }
-
-        const cleanedText = candidateText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(cleanedText);
-
-        const parsedCalories = Number(parsed.calories);
-
-        return {
-          calories: Number.isFinite(parsedCalories) ? Math.max(0, Math.round(parsedCalories)) : 0,
-          description: parsed.description ? String(parsed.description).trim() : '운동 소모 칼로리',
-        };
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[VisionService/Exercise] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
-        if (attempt < 2) {
-          await sleep(500);
-        }
-      }
-    }
-  }
-
-  console.error('[VisionService/Exercise] 모든 모델 실패:', lastError);
-  throw new Error('일시적으로 AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.');
-};
-
-/**
- * 주간 식단표 사진(구내식당 안내표 등)에서 날짜/요일별 식단 메뉴를 추출하는 함수
- */
-export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): Promise<string> => {
-  const apiKey = getApiKey();
-
-  const parts = base64ImageWithHeader.split(',');
-  const rawBase64 = parts.length > 1 ? parts[1].trim() : parts[0].trim();
-  const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
-  const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
-
-  const prompt = `식단표 사진의 요일/일자별 메뉴를 줄단위 텍스트로만 요약 출력하세요. 사족 금지.`;
-
-  const requestBody = {
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: rawBase64,
-            },
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 400,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  };
-
-  let lastError: any = null;
-
-  for (const model of FAST_MODELS) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-        const response = await fetchWithTimeout(
-          endpoint,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-          },
-          20000
-        );
-
-        if (response.status === 503 || response.status === 429) {
-          console.warn(`[VisionService/MenuOCR] ${model} 과부하/제한 (${response.status})`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.warn(`[VisionService/MenuOCR] ${model} 실패 [${response.status}]: ${errorText}`);
-          if (attempt < 2) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        const data = await response.json();
-        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (candidateText && candidateText.trim().length > 0) {
-          return candidateText.trim();
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[VisionService/MenuOCR] ${model} 처리 오류 (시도 ${attempt}/2):`, err?.message || err);
-        if (attempt < 2) {
-          await sleep(500);
-        }
-      }
-    }
-  }
-
-  console.error('[VisionService/MenuOCR] 주간 식단표 인식 실패:', lastError);
-  throw new Error('식단표 사진을 분석하지 못했습니다. 글자가 선명한 사진으로 다시 시도해 주세요.');
-};
+  // 과일 및 간식
+  '바나나': { calories: 105, carbs: 27, protein: 1, fat: 0, name: '바나나 1개' },
