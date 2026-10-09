@@ -144,8 +144,8 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('응답 시간이 초과되었습니다(8초). 다시 시도해 주세요.'));
-        }, 8000);
+          reject(new Error('응답 시간이 초과되었습니다(20초). 다시 시도해 주세요.'));
+        }, 20000);
       });
 
       const analysisPromise = analyzeMealPhoto(imagesToAnalyze);
@@ -180,8 +180,8 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('응답 시간이 초과되었습니다(8초). 다시 시도해 주세요.'));
-        }, 8000);
+          reject(new Error('응답 시간이 초과되었습니다(20초). 다시 시도해 주세요.'));
+        }, 20000);
       });
 
       const estimatePromise = estimateNutritionFromText(name.trim());
@@ -555,32 +555,4 @@ export const MealSection: React.FC<MealSectionProps> = ({ meals, onAddMeal, onDe
                         )}
                         <div>
                           <div className="font-semibold text-slate-700">{meal.name}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {meal.calories} kcal
-                            {(meal.carbs !== undefined || meal.protein !== undefined || meal.fat !== undefined) && (
-                              <span className="ml-1 text-slate-400">
-                                (탄 {meal.carbs ?? 0}g · 단 {meal.protein ?? 0}g · 지 {meal.fat ?? 0}g)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => onDeleteMeal(meal.id)}
-                        className="text-slate-300 hover:text-rose-500 p-1 rounded-lg transition"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-};
+                          <div className="text-
