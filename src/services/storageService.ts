@@ -280,43 +280,4 @@ export const getRecentWeightLogs = (
   endDate: string,
   days: number = 14,
   userId?: string
-): { date: string; weight?: number }[] => {
-  const result: { date: string; weight?: number }[] = [];
-  const end = new Date(endDate);
-
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(end);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const log = loadDailyLog(dateStr, userId);
-    result.push({
-      date: dateStr,
-      weight: log?.weight,
-    });
-  }
-
-  return result;
-};
-
-export const syncToGoogleSheet = async (log: Daily
-export const syncToGoogleSheet = async (log: DailyLog, userId?: string): Promise<void> => {
-  if (!GOOGLE_SHEET_SCRIPT_URL) return;
-  try {
-    const payload = {
-      action: 'saveLog',
-      userId: userId || 'default_user',
-      date: log.date,
-      weight: log.weight,
-      meals: log.meals || [],
-      timestamp: new Date().toISOString()
-    };
-    await fetch(GOOGLE_SHEET_SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-  } catch (error) {
-    console.error('Failed to sync log to Google Sheet:', error);
-  }
-};
+): {
