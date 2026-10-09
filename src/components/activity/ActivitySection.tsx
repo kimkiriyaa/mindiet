@@ -184,4 +184,40 @@ export const ActivitySection: React.FC<ActivitySectionProps> = ({
           </div>
 
           <div className="flex items-center justify-between pt-1">
-            <
+            <span className="text-[11px] text-slate-500 font-medium">소모 칼로리 직접 지정</span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min="0"
+                value={caloriesInput}
+                onChange={(e) => setCaloriesInput(e.target.value)}
+                placeholder="0"
+                className="w-20 px-2.5 py-1.5 text-right text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500"
+              />
+              <span className="text-xs text-slate-500 font-semibold">kcal</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveExerciseClick}
+            className={`w-full py-2.5 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95 ${
+              isExerciseSaved
+                ? 'bg-emerald-500 text-white shadow-xs shadow-emerald-200'
+                : 'bg-orange-500 hover:bg-orange-600 text-white shadow-xs'
+            }`}
+          >
+            {isExerciseSaved ? (
+              <>
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span>운동 기록 저장됨</span>
+              </>
+            ) : (
+              <span>운동 기록 저장</span>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
