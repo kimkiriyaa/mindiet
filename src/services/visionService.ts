@@ -30,7 +30,60 @@ const getApiKey = (): string => {
 };
 
 /**
- * 1. 로컬 영양 데이터베이스 (기본 단품 기준)
+ * [속도 개선] 클라이언트 측 Canvas 기반 이미지 리사이징 & 압축 (최대 1024px, JPEG 0.75 품질)
+ */
+export const resizeAndCompressImage = (
+  base64Str: string,
+  maxDimension = 1024,
+  quality = 0.75
+): Promise<string> => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return resolve(base64Str);
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let { width, height } = img;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return resolve(base64Str);
+      }
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(compressedDataUrl);
+    };
+
+    img.onerror = () => {
+      resolve(base64Str);
+    };
+
+    img.src = base64Str;
+  });
+};
+
+/**
+ * 로컬 영양 데이터베이스 (기본 단품 기준)
  */
 const COMMON_FOODS: Record<string, { calories: number; carbs: number; protein: number; fat: number; name: string; unit: string }> = {
   // 밥 및 탄수화물
@@ -103,7 +156,7 @@ const COMMON_FOODS: Record<string, { calories: number; carbs: number; protein: n
 };
 
 /**
- * 2. 로컬 운동 칼로리 공식 데이터베이스
+ * 로컬 운동 공식 데이터베이스
  */
 const COMMON_EXERCISES = [
   { keywords: ['헬스', '웨이트', '쇠질', '근력', '피트니스', '가슴', '하체', '등운동', '어깨'], met: 5.5, label: '웨이트 트레이닝' },
@@ -119,9 +172,9 @@ const COMMON_EXERCISES = [
 ];
 
 /**
- * 15초 AbortController 타임아웃 헬퍼
+ * [안정성] 12초 AbortController 타임아웃 헬퍼
  */
-const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 15000): Promise<Response> => {
+const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 12000): Promise<Response> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -132,7 +185,7 @@ const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 1
     return response;
   } catch (error: any) {
     if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
-      throw new Error('서버 응답 지연으로 재시도가 필요합니다.');
+      throw new Error('일시적인 서버 지연입니다. 다시 시도해 주세요');
     }
     throw error;
   } finally {
@@ -141,7 +194,7 @@ const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 1
 };
 
 /**
- * 텍스트에서 수량과 단위를 추출하는 유틸리티 (예: "삶은달걀 3개", "김밥 2줄", "라면 1.5개")
+ * 텍스트에서 수량과 단위를 추출하는 유틸리티
  */
 const extractQuantityAndUnit = (text: string): { quantity: number; unit?: string; cleanText: string } => {
   const match = text.match(/(\d+(?:\.\d+)?)\s*(개|알|개입|줄|공기|그릇|인분|조각|토막|캔|잔|병|봉지|봉|팩|g|ml)?/i);
@@ -155,7 +208,7 @@ const extractQuantityAndUnit = (text: string): { quantity: number; unit?: string
 };
 
 /**
- * AI/API 비상상황 시 고정 250kcal를 배제하고 음식명 기반 조리법/카테고리별 동적 추정
+ * [250kcal 고정 제거] 조리법/식재료 기반 동적 자체 추정
  */
 const estimateFallbackNutrition = (foodName: string, quantity: number = 1): FoodVisionAnalysisResult => {
   const lower = foodName.toLowerCase();
@@ -164,11 +217,11 @@ const estimateFallbackNutrition = (foodName: string, quantity: number = 1): Food
   let baseProtein = 15;
   let baseFat = 12;
 
-  if (lower.includes('튀김') || lower.includes('돈까스') || lower.includes('치킨') || lower.includes('탕수육')) {
-    baseCal = 600;
-    baseCarbs = 45;
-    baseProtein = 25;
-    baseFat = 35;
+  if (lower.includes('튀김') || lower.includes('돈까스') || lower.includes('치킨') || lower.includes('탕수육') || lower.includes('전')) {
+    baseCal = 620;
+    baseCarbs = 48;
+    baseProtein = 24;
+    baseFat = 36;
   } else if (lower.includes('샐러드') || lower.includes('채소') || lower.includes('야채') || lower.includes('과일')) {
     baseCal = 150;
     baseCarbs = 20;
@@ -179,19 +232,19 @@ const estimateFallbackNutrition = (foodName: string, quantity: number = 1): Food
     baseCarbs = 18;
     baseProtein = 18;
     baseFat = 14;
-  } else if (lower.includes('면') || lower.includes('국수') || lower.includes('파스타') || lower.includes('우동') || lower.includes('라면')) {
-    baseCal = 520;
-    baseCarbs = 80;
-    baseProtein = 12;
-    baseFat = 15;
-  } else if (lower.includes('고기') || lower.includes('구이') || lower.includes('스테이크') || lower.includes('삼겹')) {
+  } else if (lower.includes('면') || lower.includes('국수') || lower.includes('파스타') || lower.includes('우동') || lower.includes('라면') || lower.includes('짜장') || lower.includes('짬뽕')) {
+    baseCal = 550;
+    baseCarbs = 82;
+    baseProtein = 14;
+    baseFat = 16;
+  } else if (lower.includes('고기') || lower.includes('구이') || lower.includes('스테이크') || lower.includes('삼겹') || lower.includes('갈비')) {
     baseCal = 480;
-    baseCarbs = 5;
+    baseCarbs = 6;
     baseProtein = 35;
     baseFat = 32;
-  } else if (lower.includes('빵') || lower.includes('케이크') || lower.includes('과자') || lower.includes('디저트')) {
+  } else if (lower.includes('빵') || lower.includes('케이크') || lower.includes('과자') || lower.includes('디저트') || lower.includes('쿠키')) {
     baseCal = 380;
-    baseCarbs = 55;
+    baseCarbs = 56;
     baseProtein = 6;
     baseFat = 16;
   }
@@ -210,32 +263,38 @@ const estimateFallbackNutrition = (foodName: string, quantity: number = 1): Food
 };
 
 /**
- * 1장 또는 2장(식사 전, 식사 후 잔반)의 사진을 받아 총 섭취 수량/중량을 반영하여 초고속 분석하는 함수
+ * 사진 분석 (최대 1024px 리사이징, 12초 타임아웃, 총 수량 반영 곱셈)
  */
 export const analyzeMealPhoto = async (
   images: string | string[],
   userNotes?: string
 ): Promise<FoodVisionAnalysisResult> => {
   const apiKey = getApiKey();
-  const imageList = Array.isArray(images) ? images.filter(Boolean) : [images].filter(Boolean);
+  const rawImageList = Array.isArray(images) ? images.filter(Boolean) : [images].filter(Boolean);
 
-  if (imageList.length === 0) {
+  if (rawImageList.length === 0) {
     throw new Error('분석할 음식 이미지가 없습니다.');
   }
+
+  // 1. [속도 개선] 클라이언트 캔버스 리사이징 (최대 1024px, JPEG 0.75)
+  const imageList = await Promise.all(
+    rawImageList.slice(0, 2).map((img) => resizeAndCompressImage(img, 1024, 0.75))
+  );
 
   const isMultiPhoto = imageList.length >= 2;
   const weeklyMenuPlan = (localStorage.getItem('weekly_menu_plan') || '').trim();
   const menuPlanContext = weeklyMenuPlan ? ` 식단표 참고:${weeklyMenuPlan}` : '';
   const notesContext = userNotes && userNotes.trim() ? ` 사용자메모:${userNotes.trim()}` : '';
 
+  // 3. [정확도 & 250kcal 고정 제거] 프롬프트 규칙 강화
   const promptRules = `
 너는 대한민국 최고의 임상영양사 AI다.
-[규칙]
-1. 사진에 보이는 각 음식의 총 수량/개수/중량(예: 달걀 3알이면 3알 전체, 만두 5개면 5개 전체, 밥 한 공기 반이면 1.5공기)을 반드시 정확히 산출하라.
-2. 단위 1개당 영양소가 아닌, 사진에 찍힌 "총 수량(quantity)" 전체를 곱한 "총 칼로리(calories = 단위 칼로리 × quantity)"와 총 탄수화물/단백질/지방을 계산하라.
-3. 임의의 250kcal 같은 기본값을 절대 사용하지 말 것. 조리 방식(튀김, 볶음, 찜, 구이 등), 식재료 구성, 총 섭취 분량을 바탕으로 가장 현실적이고 신뢰도 높은 칼로리를 도출하라.
-${isMultiPhoto ? '4. 1번 사진은 식사 전, 2번 사진은 식사 후 잔반이다. 잔반을 차감한 실제 순 섭취량 기준의 총 수량과 총 영양소를 도출하라.' : ''}
-5. 반드시 아래 JSON 형식으로만 응답하라. 마크다운 기호 없이 순수 JSON만 반환할 것:
+[핵심 규칙]
+1. 사진 속 각 음식의 총 수량/개수(예: 삶은 달걀 3개면 3개 전체 분량, 만두 6개면 6개 전체, 밥 한 공기 반이면 1.5공기)를 반드시 정확히 파악하라.
+2. 단위 1개당 영양소가 아니라, 사진에 보이는 전체 섭취량 기준의 총 수량(quantity)을 반영하여 "총 칼로리 = 개당 칼로리 × quantity" 및 총 탄/단/지를 계산하라.
+3. 250kcal 같은 임의 고정값을 절대 사용하지 말 것. 식재료와 조리 형태(튀김, 볶음, 찜, 구이, 국물 등), 총 섭취 분량을 종합하여 가장 합리적이고 정확한 추정치를 직접 계산하여 반환하라.
+${isMultiPhoto ? '4. 1번 사진은 식사 전, 2번 사진은 식사 후 잔반이다. 잔반을 차감한 실제 순 섭취량 기준의 총 수량과 총 칼로리/영양소를 도출하라.' : ''}
+5. 반드시 아래 JSON 형식으로만 순수 텍스트로 응답하라 (코드블록 마크다운 기호 없이 순수 JSON만 반환):
 {"name": string, "quantity": number, "unit": string, "calories": number, "carbs": number, "protein": number, "fat": number, "description": string}
 ${menuPlanContext}
 ${notesContext}
@@ -243,7 +302,7 @@ ${notesContext}
 
   const parts: any[] = [{ text: promptRules }];
 
-  imageList.slice(0, 2).forEach((img) => {
+  imageList.forEach((img) => {
     const splitArr = img.split(',');
     const rawBase64 = splitArr.length > 1 ? splitArr[1].trim() : splitArr[0].trim();
     const mimeMatch = img.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
@@ -270,6 +329,7 @@ ${notesContext}
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   try {
+    // 2. [안정성] 12초 타임아웃
     const response = await fetchWithTimeout(
       endpoint,
       {
@@ -277,7 +337,7 @@ ${notesContext}
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       },
-      15000
+      12000
     );
 
     if (!response.ok) {
@@ -305,10 +365,10 @@ ${notesContext}
     };
   } catch (err: any) {
     console.warn('[VisionService] 이미지 분석 실패:', err?.message || err);
-    if (err?.message?.includes('서버 응답 지연')) {
+    if (err?.message?.includes('서버 지연')) {
       throw err;
     }
-    throw new Error('서버 응답 지연으로 재시도가 필요합니다.');
+    throw new Error('일시적인 서버 지연입니다. 다시 시도해 주세요');
   }
 };
 
@@ -319,8 +379,8 @@ export const analyzeFoodImage = async (base64ImageWithHeader: string): Promise<F
 /**
  * 텍스트 음식명을 입력받아 칼로리와 영양성분을 추정하는 함수
  * - 수량(개수/인분) 파싱 및 곱셈 적용
- * - 고정 250kcal fallback 제거 및 AI 자체 맞춤 추정
- * - 15초 타임아웃 적용
+ * - 250kcal 고정값 제거 및 AI 자체 맞춤 추정
+ * - 12초 타임아웃 적용
  */
 export const estimateNutritionFromText = async (foodName: string): Promise<FoodVisionAnalysisResult> => {
   const trimmed = foodName.trim();
@@ -330,7 +390,7 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
 
   const { quantity, unit, cleanText } = extractQuantityAndUnit(trimmed);
 
-  // 1. 공백 제거 후 로컬 사전(COMMON_FOODS) 매칭 + 수량 곱셈
+  // 1. 로컬 사전 매칭 시 수량 곱셈 적용
   const normalized = (cleanText || trimmed).replace(/\s+/g, '').toLowerCase();
   for (const [key, value] of Object.entries(COMMON_FOODS)) {
     const cleanKey = key.replace(/\s+/g, '').toLowerCase();
@@ -349,14 +409,14 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
     }
   }
 
-  // 2. 사전에 없는 경우 Gemini 2.5 Flash 호출 (15초 타임아웃)
+  // 2. 사전에 없는 경우 Gemini 2.5 Flash 호출 (12초 타임아웃)
   try {
     const apiKey = getApiKey();
     const prompt = `
 음식명: "${trimmed}"
 반드시 음식의 조리 방식, 주재료 구성, 총 분량/수량(예: ${quantity}${unit || '개'})을 엄밀히 반영하여 총 칼로리와 영양성분을 계산하라.
-단위 1개가 아닌 사용자가 입력한 총량 전체의 칼로리와 탄수화물, 단백질, 지방을 계산하라.
-어떠한 임의 고정값도 넣지 말고 실제적인 추정치를 JSON 형식으로만 응답하라:
+단위 1개가 아닌 사용자가 입력한 총량 전체의 칼로리(총 칼로리 = 단위 칼로리 × 수량)와 탄수화물, 단백질, 지방을 계산하라.
+250kcal 같은 임의 고정값을 절대 넣지 말고 식재료와 조리 형태에 맞는 실제적인 추정치를 JSON 형식으로만 응답하라:
 {"name":"${trimmed}","quantity":${quantity},"unit":"${unit || '인분'}","calories":number,"carbs":number,"protein":number,"fat":number,"description":string}
 `.trim();
 
@@ -379,7 +439,7 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       },
-      15000
+      12000
     );
 
     if (response.ok) {
@@ -402,18 +462,17 @@ export const estimateNutritionFromText = async (foodName: string): Promise<FoodV
     }
   } catch (err: any) {
     console.warn('[VisionService/Text] API 통신 지연 또는 실패:', err?.message || err);
-    if (err?.message?.includes('서버 응답 지연')) {
+    if (err?.message?.includes('서버 지연')) {
       throw err;
     }
   }
 
-  // 3. API 실패 시에도 임의의 250kcal를 대입하지 않고, 음식 특성 기반의 지능형 자체 추정치 반환
+  // 3. API 비상 상황 시 250kcal 고정이 아닌 음식 특성 기반 지능형 자체 추정치 반환
   return estimateFallbackNutrition(trimmed, quantity);
 };
 
 /**
- * 사용자 체중과 운동 내역 텍스트를 기반으로 예상 소모 칼로리를 추정하는 함수
- * 15초 타임아웃 적용
+ * 사용자 체중과 운동 내역 텍스트를 기반으로 예상 소모 칼로리를 추정하는 함수 (12초 타임아웃)
  */
 export const estimateExerciseCalories = async (
   exerciseText: string,
@@ -426,7 +485,6 @@ export const estimateExerciseCalories = async (
 
   const safeWeight = currentWeight > 0 ? currentWeight : 65;
 
-  // 시간 파싱 (기본값: 30분)
   let durationMinutes = 30;
   const hourMatch = trimmed.match(/(\d+)\s*(시간|h|hr)/i);
   const minMatch = trimmed.match(/(\d+)\s*(분|m|min)/i);
@@ -453,10 +511,10 @@ export const estimateExerciseCalories = async (
     }
   }
 
-  // 2. 사전에 없는 경우 Gemini 2.5 Flash 호출 (15초 타임아웃)
+  // 2. 사전에 없는 경우 Gemini 2.5 Flash 호출 (12초 타임아웃)
   try {
     const apiKey = getApiKey();
-    const prompt = `체중: ${safeWeight}kg, 운동: "${trimmed}". 조리나 운동 강도 및 시간을 종합해 소모 칼로리를 정확히 계산하라. JSON으로만 반환: {"calories": number, "description": string}`;
+    const prompt = `체중: ${safeWeight}kg, 운동: "${trimmed}". 운동 강도와 시간을 종합해 소모 칼로리를 정확히 계산하라. JSON으로만 반환: {"calories": number, "description": string}`;
 
     const requestBody = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -477,7 +535,7 @@ export const estimateExerciseCalories = async (
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       },
-      15000
+      12000
     );
 
     if (response.ok) {
@@ -494,12 +552,12 @@ export const estimateExerciseCalories = async (
     }
   } catch (err: any) {
     console.warn('[VisionService/Exercise] API 통신 실패/지연:', err?.message || err);
-    if (err?.message?.includes('서버 응답 지연')) {
+    if (err?.message?.includes('서버 지연')) {
       throw err;
     }
   }
 
-  // 3. API 실패 시 중강도 기본 운동(MET 5.0) 공식으로 안전 계산
+  // 3. API 실패 시 중강도 기본 운동(MET 5.0) 공식으로 계산
   const fallbackBurned = Math.round(5.0 * safeWeight * (durationMinutes / 60) * 1.05);
   return {
     calories: fallbackBurned,
@@ -508,14 +566,15 @@ export const estimateExerciseCalories = async (
 };
 
 /**
- * 주간 식단표 사진에서 메뉴 추출 (15초 타임아웃 적용)
+ * 주간 식단표 사진에서 메뉴 추출 (최대 1024px 리사이징, 12초 타임아웃)
  */
 export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): Promise<string> => {
   const apiKey = getApiKey();
 
-  const parts = base64ImageWithHeader.split(',');
+  const resizedImage = await resizeAndCompressImage(base64ImageWithHeader, 1024, 0.75);
+  const parts = resizedImage.split(',');
   const rawBase64 = parts.length > 1 ? parts[1].trim() : parts[0].trim();
-  const mimeTypeMatch = base64ImageWithHeader.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
+  const mimeTypeMatch = resizedImage.match(/data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+).*?,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
 
   const prompt = `식단표 사진의 요일/일자별 메뉴를 줄단위 텍스트로만 요약 출력하세요. 사족 금지.`;
@@ -551,7 +610,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       },
-      15000
+      12000
     );
 
     if (!response.ok) {
@@ -566,7 +625,7 @@ export const parseWeeklyMenuFromImage = async (base64ImageWithHeader: string): P
     }
   } catch (err: any) {
     console.warn('[VisionService/MenuOCR] OCR 실패/지연:', err?.message || err);
-    if (err?.message?.includes('서버 응답 지연')) {
+    if (err?.message?.includes('서버 지연')) {
       throw err;
     }
   }
