@@ -19,6 +19,7 @@ import {
   syncToGoogleSheet,
   getSavedSession,
   setSavedSession,
+  calculateDailyTargetCalories,
 } from './services/storageService';
 import { calculateStepCalories, safeVal } from './utils/nutritionCalc';
 import { estimateExerciseCalories } from './services/visionService';
@@ -44,20 +45,44 @@ export const App: React.FC = () => {
   const activeUserId = session?.userId || 'default';
 
   const [profile, setProfile] = useState<UserProfile>(() => {
-    return loadUserProfile(activeUserId) || DEFAULT_PROFILE;
+    const loaded = loadUserProfile(activeUserId);
+    if (loaded) {
+      const calculatedTarget = calculateDailyTargetCalories(loaded);
+      return {
+        ...loaded,
+        targetCalories: loaded.targetCalories || calculatedTarget,
+      };
+    }
+    const calculatedTarget = calculateDailyTargetCalories(DEFAULT_PROFILE);
+    return {
+      ...DEFAULT_PROFILE,
+      targetCalories: calculatedTarget,
+    };
   });
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
+  // 프로필 신체 스펙 기반 실시간 권장 목표 칼로리
+  const currentTargetCalories = useMemo(() => {
+    if (profile.targetCalories && profile.targetCalories > 0) {
+      return profile.targetCalories;
+    }
+    return calculateDailyTargetCalories(profile);
+  }, [profile]);
+
   const [dailyLog, setDailyLog] = useState<DailyLog>(() => {
     const loaded = loadDailyLog(currentDate, activeUserId);
+    const initialTarget = currentTargetCalories;
     if (loaded) {
-      return loaded;
+      return {
+        ...loaded,
+        targetCalories: loaded.targetCalories || initialTarget,
+      };
     }
     return {
       date: currentDate,
       userId: activeUserId,
-      targetCalories: safeVal(profile.targetCalories, 2000),
+      targetCalories: initialTarget,
       steps: 0,
       meals: [],
       waterIntake: 0,
@@ -82,9 +107,17 @@ export const App: React.FC = () => {
   useEffect(() => {
     const loadedProfile = loadUserProfile(activeUserId);
     if (loadedProfile) {
-      setProfile(loadedProfile);
+      const calculatedTarget = calculateDailyTargetCalories(loadedProfile);
+      setProfile({
+        ...loadedProfile,
+        targetCalories: loadedProfile.targetCalories || calculatedTarget,
+      });
     } else {
-      setProfile(DEFAULT_PROFILE);
+      const calculatedTarget = calculateDailyTargetCalories(DEFAULT_PROFILE);
+      setProfile({
+        ...DEFAULT_PROFILE,
+        targetCalories: calculatedTarget,
+      });
     }
   }, [activeUserId]);
 
@@ -92,7 +125,7 @@ export const App: React.FC = () => {
     if (!session) return;
     const currentUid = session.userId;
     const log = loadDailyLog(currentDate, currentUid);
-    const fallbackTarget = safeVal(profile.targetCalories, 2000);
+    const fallbackTarget = currentTargetCalories;
     const fallbackWeight = profile.weight ? safeVal(profile.weight, 70) : undefined;
 
     if (log) {
@@ -126,7 +159,7 @@ export const App: React.FC = () => {
     }
 
     setRecentWeightLogs(getRecentWeightLogs(currentDate, 14, currentUid));
-  }, [currentDate, profile.targetCalories, profile.weight, session]);
+  }, [currentDate, currentTargetCalories, profile.weight, session]);
 
   const handleUpdateLog = useCallback(
     (newLog: DailyLog) => {
@@ -134,7 +167,7 @@ export const App: React.FC = () => {
       const sanitizedLog: DailyLog = {
         ...newLog,
         userId: currentUid,
-        targetCalories: Math.max(0, safeVal(newLog.targetCalories, 2000)),
+        targetCalories: Math.max(0, safeVal(newLog.targetCalories, currentTargetCalories)),
         steps: Math.max(0, safeVal(newLog.steps, 0)),
         waterIntake: Math.max(0, safeVal(newLog.waterIntake, 0)),
         weight: newLog.weight !== undefined ? safeVal(newLog.weight, 0) : undefined,
@@ -147,7 +180,7 @@ export const App: React.FC = () => {
       syncToGoogleSheet(sanitizedLog);
       setRecentWeightLogs(getRecentWeightLogs(newLog.date, 14, currentUid));
     },
-    [session]
+    [session, currentTargetCalories]
   );
 
   const handleLoginSuccess = (newSession: UserSession) => {
@@ -175,21 +208,22 @@ export const App: React.FC = () => {
   };
 
   const handleSaveProfile = (newProfile: UserProfile) => {
+    const autoCalculatedTarget = calculateDailyTargetCalories(newProfile);
     const sanitizedProfile: UserProfile = {
       ...newProfile,
-      height: Math.max(0, safeVal(newProfile.height, 170)),
-      weight: Math.max(0, safeVal(newProfile.weight, 65)),
-      targetCalories: Math.max(0, safeVal(newProfile.targetCalories, 2000)),
+      height: Math.max(0, safeVal(newProfile.height, 175)),
+      weight: Math.max(0, safeVal(newProfile.weight, 70)),
+      targetCalories: Math.max(0, safeVal(newProfile.targetCalories, autoCalculatedTarget)),
       targetWater: Math.max(0, safeVal(newProfile.targetWater, 2000)),
     };
     setProfile(sanitizedProfile);
     saveUserProfile(sanitizedProfile, activeUserId);
-    if (sanitizedProfile.targetCalories && sanitizedProfile.targetCalories !== dailyLog.targetCalories) {
-      handleUpdateLog({
-        ...dailyLog,
-        targetCalories: sanitizedProfile.targetCalories,
-      });
-    }
+
+    // 프로필 변경 시 대시보드 목표 칼로리 즉시 동기화
+    handleUpdateLog({
+      ...dailyLog,
+      targetCalories: sanitizedProfile.targetCalories,
+    });
   };
 
   // 몸무게 저장 버튼 클릭 또는 엔터 키 입력 시 저장 핸들러
@@ -201,18 +235,22 @@ export const App: React.FC = () => {
     }
 
     const validWeight = Math.round(parsed * 10) / 10;
-    const updatedLog: DailyLog = {
-      ...dailyLog,
-      weight: validWeight,
-    };
-    handleUpdateLog(updatedLog);
-
     const updatedProfile: UserProfile = {
       ...profile,
       weight: validWeight,
     };
+    const newAutoTarget = calculateDailyTargetCalories(updatedProfile);
+    updatedProfile.targetCalories = updatedProfile.targetCalories || newAutoTarget;
+
     setProfile(updatedProfile);
     saveUserProfile(updatedProfile, activeUserId);
+
+    const updatedLog: DailyLog = {
+      ...dailyLog,
+      weight: validWeight,
+      targetCalories: updatedProfile.targetCalories || newAutoTarget,
+    };
+    handleUpdateLog(updatedLog);
 
     setIsWeightSaved(true);
     setTimeout(() => {
@@ -280,7 +318,7 @@ export const App: React.FC = () => {
     handleUpdateLog(updatedLog);
   };
 
-  // 총 섭취 칼로리 계산 (NaN 원천 방어)
+  // 총 섭취 칼로리 계산
   const totalInCalories = useMemo(() => {
     const sum = dailyLog.meals.reduce((acc, item) => acc + safeVal(item?.calories, 0), 0);
     return Math.max(0, Math.round(safeVal(sum, 0)));
@@ -309,11 +347,11 @@ export const App: React.FC = () => {
     return safeVal(totalInCalories - totalOutCalories, 0);
   }, [totalInCalories, totalOutCalories]);
 
-  // 목표 칼로리 계산
+  // 목표 칼로리 계산 (신체 스펙 자동 계산값 바인딩)
   const targetCalories = useMemo(() => {
-    const target = safeVal(dailyLog.targetCalories, safeVal(profile.targetCalories, 2000));
-    return target > 0 ? target : 2000;
-  }, [dailyLog.targetCalories, profile.targetCalories]);
+    const target = safeVal(dailyLog.targetCalories, currentTargetCalories);
+    return target > 0 ? target : currentTargetCalories;
+  }, [dailyLog.targetCalories, currentTargetCalories]);
 
   // 잔여 칼로리 계산: 목표 - 순 칼로리
   const remainingCalories = useMemo(() => {
@@ -379,7 +417,7 @@ export const App: React.FC = () => {
             </div>
             <div>
               <div className="text-xs font-bold text-slate-800">오늘의 몸무게</div>
-              <div className="text-[10px] text-slate-400">소모 칼로리에 실시간 반영</div>
+              <div className="text-[10px] text-slate-400">목표 및 소모 칼로리에 실시간 반영</div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">

@@ -3,10 +3,59 @@ import { DailyLog, AuthUser, UserSession, UserProfile } from '../types/diet';
 export const GOOGLE_SHEET_SCRIPT_URL =
   'https://script.google.com/macros/s/AKfycbwQ2A-RTrbZs3oNp5G2j-3cH2M-1UfSEI28E18X1ZRCF1Y9YjikTqNa9yvRAZU09V1u/exec';
 
-const DEFAULT_TARGET_CALORIES = 2000;
 const REGISTERED_USERS_KEY = 'registered_users';
 const CURRENT_SESSION_KEY = 'min_diet_session';
 const LEGACY_STORAGE_KEY_PREFIX = 'diet_logs_';
+
+/**
+ * 사용자 프로필 신체 스펙(Mifflin-St Jeor BMR 및 TDEE) 기반 일일 권장 섭취 칼로리 자동 계산
+ */
+export const calculateDailyTargetCalories = (profile?: Partial<UserProfile> | null): number => {
+  if (!profile) return 2000;
+
+  const height = profile.height && profile.height > 0 ? profile.height : 175;
+  const weight = profile.weight && profile.weight > 0 ? profile.weight : 70;
+  const gender = profile.gender === 'female' ? 'female' : 'male';
+
+  // 나이 계산 (생년월일 기준 만 나이 산출, 없을 경우 기본 30세)
+  let age = 30;
+  if (profile.birthDate) {
+    const birthYear = new Date(profile.birthDate).getFullYear();
+    if (!isNaN(birthYear) && birthYear > 1900 && birthYear < new Date().getFullYear()) {
+      age = Math.max(15, new Date().getFullYear() - birthYear);
+    }
+  }
+
+  // 1. Mifflin-St Jeor 기초대사량(BMR) 계산
+  // 남성: 10 * 체중(kg) + 6.25 * 키(cm) - 5 * 나이 + 5
+  // 여성: 10 * 체중(kg) + 6.25 * 키(cm) - 5 * 나이 - 161
+  let bmr = 10 * weight + 6.25 * height - 5 * age;
+  if (gender === 'male') {
+    bmr += 5;
+  } else {
+    bmr -= 161;
+  }
+
+  // 2. 활동계수 (PAL: Physical Activity Level) 적용
+  const activityFactors: Record<string, number> = {
+    sedentary: 1.2,      // 좌식 생활 / 운동 거의 안 함
+    light: 1.375,       // 주 1~3회 가벼운 운동
+    moderate: 1.55,     // 주 3~5회 보통 운동
+    active: 1.725,      // 주 6~7회 적극적인 운동
+    very_active: 1.9,   // 운동선수 / 매우 힘든 육체 노동
+  };
+  const factor = activityFactors[profile.activityLevel || 'moderate'] || 1.55;
+  const tdee = bmr * factor;
+
+  // 3. 다이어트 목표 반영: 기본 안전 감량 모드 (TDEE - 400kcal)
+  let recommended = Math.round(tdee - 400);
+
+  // 건강 안전 하한선 보정 (여성 최소 1200kcal, 남성 최소 1500kcal)
+  const minSafe = gender === 'female' ? 1200 : 1500;
+  recommended = Math.max(minSafe, recommended);
+
+  return recommended;
+};
 
 const sanitizeUserId = (userId?: string): string => {
   if (!userId || typeof userId !== 'string' || !userId.trim()) {
